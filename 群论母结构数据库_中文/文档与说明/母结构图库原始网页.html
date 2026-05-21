@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>母版结构图库：按对称性分类</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --line: #dce6f1;
+      --text: #152331;
+      --muted: #5f7285;
+      --blue: #4b83ff;
+      --teal: #15c7ab;
+      --orange: #ff8c63;
+      --purple: #9178ff;
+      --soft: #eef4fb;
+      --shadow: 0 16px 42px rgba(26, 44, 78, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 26px 18px 50px;
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(75, 131, 255, 0.08), transparent 28%),
+        radial-gradient(circle at top right, rgba(21, 199, 171, 0.08), transparent 28%),
+        linear-gradient(180deg, #f8fbff 0%, #eef3f8 100%);
+      line-height: 1.7;
+    }
+
+    .page {
+      max-width: 1320px;
+      margin: 0 auto;
+    }
+
+    .hero, .section, .note {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 28px 30px 24px;
+      margin-bottom: 22px;
+    }
+
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: 34px;
+      line-height: 1.2;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .tip {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: #f4f8ff;
+      border-left: 4px solid var(--blue);
+      color: #233c57;
+      font-size: 16px;
+    }
+
+    .section {
+      padding: 22px 22px 18px;
+      margin-top: 20px;
+    }
+
+    .section h2 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+
+    .section .intro {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+
+    .item {
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+      overflow: hidden;
+    }
+
+    .item-header {
+      padding: 14px 16px 8px;
+    }
+
+    .item h3 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .meta {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .item svg {
+      display: block;
+      width: calc(100% - 24px);
+      margin: 8px auto 0;
+      height: auto;
+      background: linear-gradient(180deg, #fcfdff 0%, #f3f7fb 100%);
+      border: 1px solid #e7edf5;
+      border-radius: 16px;
+    }
+
+    .desc {
+      padding: 10px 16px 16px;
+      font-size: 14px;
+      color: #24374b;
+    }
+
+    .desc strong {
+      color: #122132;
+    }
+
+    .note {
+      margin-top: 22px;
+      padding: 22px 24px;
+    }
+
+    .note h3 {
+      margin: 0 0 10px;
+      font-size: 22px;
+    }
+
+    .note p {
+      margin: 8px 0;
+    }
+
+    .legend {
+      font-size: 14px;
+      fill: #526478;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    }
+
+    @media (max-width: 860px) {
+      .hero h1 { font-size: 29px; }
+      .section h2 { font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <h1>母版结构图库：按对称性分类</h1>
+      <p>下面这一份不是“所有可能的几何形状”，而是我认为最适合当成<strong>母版</strong>的结构库。标准是：对称性清楚、参数少、容易加单一扰动、适合后续做 quasi-BIC / Fano / 高 Q / 逆向设计。</p>
+      <div class="tip">
+        最重要的理解：你后面不应该再主要按“圆、方、挖孔”来组织结构，而应该按“高对称母结构家族”来组织。<br />
+        这份图库就是你后面建立母结构库的起点。
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>一、近径向高对称母结构</h2>
+      <p class="intro">这一组在孤立结构里接近连续旋转对称，放进周期晶格后还要结合晶格一起理解。它们适合做“高对称起点”，但如果讲不好，老师容易觉得还是“圆里挖孔”，所以更适合做辅线或和强物理解释配合使用。</p>
+      <div class="grid">
+        <div class="item">
+          <div class="item-header">
+            <h3>圆盘</h3>
+            <div class="meta">近连续旋转对称</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <circle cx="120" cy="90" r="48" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <circle cx="120" cy="90" r="6" fill="#6b7c90"/>
+            <text x="72" y="158" class="legend">最简单的高对称起点</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>最基础的径向高对称单元。<br><strong>常见破缺：</strong>偏心孔、单侧缺口、局部槽。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>圆环</h3>
+            <div class="meta">近连续旋转对称</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <circle cx="120" cy="90" r="52" fill="#baf3ea" stroke="#15c7ab" stroke-width="3"/>
+            <circle cx="120" cy="90" r="26" fill="#ffffff" stroke="#15c7ab" stroke-width="3"/>
+            <text x="74" y="158" class="legend">适合做环形模态</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>环形共振与角向模态分析。<br><strong>常见破缺：</strong>单裂缝、偏心内孔、环宽不均。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>同心双环</h3>
+            <div class="meta">近连续旋转对称</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <circle cx="120" cy="90" r="56" fill="none" stroke="#4b83ff" stroke-width="10"/>
+            <circle cx="120" cy="90" r="30" fill="none" stroke="#15c7ab" stroke-width="10"/>
+            <text x="58" y="158" class="legend">双环耦合母结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>内外环耦合、双模相互作用。<br><strong>常见破缺：</strong>内外环偏移、环宽差、单点缺口。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>Bullseye 多环</h3>
+            <div class="meta">近连续旋转对称</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <circle cx="120" cy="90" r="58" fill="none" stroke="#4b83ff" stroke-width="8"/>
+            <circle cx="120" cy="90" r="42" fill="none" stroke="#15c7ab" stroke-width="8"/>
+            <circle cx="120" cy="90" r="26" fill="none" stroke="#ff8c63" stroke-width="8"/>
+            <circle cx="120" cy="90" r="10" fill="#d7e7ff" stroke="#6f8094" stroke-width="2"/>
+            <text x="58" y="158" class="legend">多环径向母结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>径向多模、同心多环路线。<br><strong>常见破缺：</strong>核心偏心、单环宽度变化、局部切槽。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>中心柱 + 外环</h3>
+            <div class="meta">近连续旋转对称</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <circle cx="120" cy="90" r="54" fill="none" stroke="#15c7ab" stroke-width="12"/>
+            <circle cx="120" cy="90" r="18" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <text x="54" y="158" class="legend">中心-外环耦合结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>中心模与环模耦合分析。<br><strong>常见破缺：</strong>中心柱偏移、外环开槽、内外尺寸差。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>二、C2 母结构</h2>
+      <p class="intro">这一类是最推荐你先做的主线。原因很简单：它最容易、参数最少、最适合先做出第一套 quasi-BIC 和 <code>Q ~ 1 / delta^2</code> 规律。</p>
+      <div class="grid">
+        <div class="item">
+          <div class="item-header">
+            <h3>双柱</h3>
+            <div class="meta">C2 · 旋转 180° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <ellipse cx="85" cy="90" rx="22" ry="50" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <ellipse cx="155" cy="90" rx="22" ry="50" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <circle cx="120" cy="90" r="6" fill="#6b7c90"/>
+            <text x="72" y="158" class="legend">最基础的 dimer 母结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>最优先推荐。<br><strong>常见破缺：</strong>左右半径差、左右位置差。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>双圆盘</h3>
+            <div class="meta">C2 · 旋转 180° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <circle cx="84" cy="90" r="28" fill="#d9f7f1" stroke="#15c7ab" stroke-width="3"/>
+            <circle cx="156" cy="90" r="28" fill="#d9f7f1" stroke="#15c7ab" stroke-width="3"/>
+            <circle cx="120" cy="90" r="6" fill="#6b7c90"/>
+            <text x="68" y="158" class="legend">经典双圆盘路线</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>直观、好解释、好画场图。<br><strong>常见破缺：</strong>半径差、间距差、单盘开孔。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>双梁</h3>
+            <div class="meta">C2 · 旋转 180° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <rect x="38" y="74" width="64" height="32" rx="10" fill="#ffd4c4" stroke="#ff8c63" stroke-width="3"/>
+            <rect x="138" y="74" width="64" height="32" rx="10" fill="#ffd4c4" stroke="#ff8c63" stroke-width="3"/>
+            <circle cx="120" cy="90" r="6" fill="#6b7c90"/>
+            <text x="60" y="158" class="legend">双梁 / 条带型起点</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>适合条带型或平板型设计。<br><strong>常见破缺：</strong>梁宽差、梁长差、梁偏移。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>双脊</h3>
+            <div class="meta">C2 · 旋转 180° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <rect x="78" y="36" width="22" height="108" rx="8" fill="#cceeff" stroke="#4b83ff" stroke-width="3"/>
+            <rect x="140" y="36" width="22" height="108" rx="8" fill="#cceeff" stroke="#4b83ff" stroke-width="3"/>
+            <line x1="50" y1="144" x2="190" y2="144" stroke="#c9d5e2" stroke-width="3"/>
+            <circle cx="120" cy="90" r="6" fill="#6b7c90"/>
+            <text x="61" y="166" class="legend">平台型双脊结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>适合和波导/平台结合。<br><strong>常见破缺：</strong>脊宽差、顶槽差、位置差。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>双椭圆</h3>
+            <div class="meta">C2 · 旋转 180° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <ellipse cx="85" cy="90" rx="22" ry="42" transform="rotate(-25 85 90)" fill="#eadfff" stroke="#9178ff" stroke-width="3"/>
+            <ellipse cx="155" cy="90" rx="22" ry="42" transform="rotate(25 155 90)" fill="#eadfff" stroke="#9178ff" stroke-width="3"/>
+            <circle cx="120" cy="90" r="6" fill="#6b7c90"/>
+            <text x="66" y="158" class="legend">适合做旋转型扰动</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>适合研究旋转角破缺。<br><strong>常见破缺：</strong>转角差、长轴差、间距差。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>三、C3 母结构</h2>
+      <p class="intro">这一类理论上很漂亮，但通常比 <code>C2</code> 和 <code>C4</code> 稍微难讲一点。适合在你已经有一条稳定主线之后，再用来扩展多重旋转对称研究。</p>
+      <div class="grid">
+        <div class="item">
+          <div class="item-header">
+            <h3>三柱簇</h3>
+            <div class="meta">C3 · 旋转 120° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <circle cx="120" cy="54" r="22" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <circle cx="76" cy="122" r="22" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <circle cx="164" cy="122" r="22" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <circle cx="120" cy="100" r="5" fill="#6b7c90"/>
+            <text x="70" y="160" class="legend">最简单的 C3 起点</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>三重旋转最直观。<br><strong>常见破缺：</strong>改单个柱子、单点偏移。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>三叶星</h3>
+            <div class="meta">C3 · 旋转 120° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <ellipse cx="120" cy="60" rx="18" ry="44" fill="#d9f7f1" stroke="#15c7ab" stroke-width="3"/>
+            <ellipse cx="85" cy="120" rx="18" ry="44" transform="rotate(120 85 120)" fill="#d9f7f1" stroke="#15c7ab" stroke-width="3"/>
+            <ellipse cx="155" cy="120" rx="18" ry="44" transform="rotate(-120 155 120)" fill="#d9f7f1" stroke="#15c7ab" stroke-width="3"/>
+            <circle cx="120" cy="92" r="6" fill="#6b7c90"/>
+            <text x="74" y="160" class="legend">三叶 / 三臂母结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>适合角向模态分析。<br><strong>常见破缺：</strong>单臂长度差、单臂宽度差。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>三孔盘</h3>
+            <div class="meta">C3 · 旋转 120° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <circle cx="120" cy="90" r="56" fill="#ffd4c4" stroke="#ff8c63" stroke-width="3"/>
+            <circle cx="120" cy="58" r="12" fill="#ffffff" stroke="#ff8c63" stroke-width="2"/>
+            <circle cx="92" cy="114" r="12" fill="#ffffff" stroke="#ff8c63" stroke-width="2"/>
+            <circle cx="148" cy="114" r="12" fill="#ffffff" stroke="#ff8c63" stroke-width="2"/>
+            <text x="72" y="160" class="legend">盘体 + 三孔母结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>适合局部孔扰动路线。<br><strong>常见破缺：</strong>改单个孔径、单孔偏移、单孔深度差。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>三裂缝环</h3>
+            <div class="meta">C3 · 旋转 120° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <circle cx="120" cy="90" r="54" fill="none" stroke="#9178ff" stroke-width="12"/>
+            <rect x="115" y="24" width="10" height="28" fill="#ffffff"/>
+            <rect x="68" y="109" width="26" height="10" transform="rotate(-60 81 114)" fill="#ffffff"/>
+            <rect x="146" y="109" width="26" height="10" transform="rotate(60 159 114)" fill="#ffffff"/>
+            <text x="62" y="160" class="legend">环形 + 三裂缝结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>适合环模与裂缝耦合。<br><strong>常见破缺：</strong>改单裂缝宽度、单裂缝角度。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>四、C4 母结构</h2>
+      <p class="intro">这一类最适合你拿去建立“群论味道很强”的主线。因为它很适合清楚地做出 <code>C4 → C2 → C1</code> 这样的降群路径。</p>
+      <div class="grid">
+        <div class="item">
+          <div class="item-header">
+            <h3>正方块</h3>
+            <div class="meta">C4 · 旋转 90° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <rect x="68" y="38" width="104" height="104" rx="10" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <text x="77" y="160" class="legend">最简单的 C4 实体块</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>最基础的 C4 起点。<br><strong>常见破缺：</strong>单角切口、单孔、边长不等。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>十字</h3>
+            <div class="meta">C4 · 旋转 90° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <rect x="103" y="26" width="34" height="128" rx="10" fill="#d9f7f1" stroke="#15c7ab" stroke-width="3"/>
+            <rect x="56" y="73" width="128" height="34" rx="10" fill="#d9f7f1" stroke="#15c7ab" stroke-width="3"/>
+            <text x="86" y="160" class="legend">最推荐的 C4 母结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>最适合讲 C4 降群。<br><strong>常见破缺：</strong>横臂/竖臂尺寸差、单臂变化。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>方环</h3>
+            <div class="meta">C4 · 旋转 90° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <rect x="58" y="28" width="124" height="124" rx="12" fill="#ffd4c4" stroke="#ff8c63" stroke-width="10"/>
+            <rect x="92" y="62" width="56" height="56" rx="8" fill="#ffffff"/>
+            <text x="81" y="160" class="legend">方环型 C4 母结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>环模、角模都容易讲。<br><strong>常见破缺：</strong>单裂缝、边宽差、偏心内孔。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>四柱簇</h3>
+            <div class="meta">C4 · 旋转 90° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <circle cx="120" cy="90" r="8" fill="#6b7c90"/>
+            <circle cx="120" cy="44" r="20" fill="#eadfff" stroke="#9178ff" stroke-width="3"/>
+            <circle cx="166" cy="90" r="20" fill="#eadfff" stroke="#9178ff" stroke-width="3"/>
+            <circle cx="120" cy="136" r="20" fill="#eadfff" stroke="#9178ff" stroke-width="3"/>
+            <circle cx="74" cy="90" r="20" fill="#eadfff" stroke="#9178ff" stroke-width="3"/>
+            <text x="82" y="160" class="legend">四体耦合母结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>比十字更离散，适合 cluster 路线。<br><strong>常见破缺：</strong>改单个柱子、对边成对变化。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>四孔方块</h3>
+            <div class="meta">C4 · 旋转 90° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <rect x="58" y="28" width="124" height="124" rx="12" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <circle cx="90" cy="60" r="12" fill="#ffffff" stroke="#4b83ff" stroke-width="2"/>
+            <circle cx="150" cy="60" r="12" fill="#ffffff" stroke="#4b83ff" stroke-width="2"/>
+            <circle cx="90" cy="120" r="12" fill="#ffffff" stroke="#4b83ff" stroke-width="2"/>
+            <circle cx="150" cy="120" r="12" fill="#ffffff" stroke="#4b83ff" stroke-width="2"/>
+            <text x="73" y="160" class="legend">方块 + 四孔母结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>适合孔位/孔径型扰动。<br><strong>常见破缺：</strong>改单孔、对角成对变化。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>四裂缝环</h3>
+            <div class="meta">C4 · 旋转 90° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <circle cx="120" cy="90" r="54" fill="none" stroke="#15c7ab" stroke-width="12"/>
+            <rect x="115" y="22" width="10" height="28" fill="#ffffff"/>
+            <rect x="115" y="130" width="10" height="28" fill="#ffffff"/>
+            <rect x="174" y="85" width="28" height="10" fill="#ffffff"/>
+            <rect x="38" y="85" width="28" height="10" fill="#ffffff"/>
+            <text x="75" y="160" class="legend">环形 + 四裂缝结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>很适合做角向破缺。<br><strong>常见破缺：</strong>改单裂缝、裂缝宽度差、角度差。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>五、C6 母结构</h2>
+      <p class="intro">这一类更适合在你已经有稳定的 <code>C2</code> 或 <code>C4</code> 主线之后，再拿来拓展多级降群和更复杂的模态分裂。</p>
+      <div class="grid">
+        <div class="item">
+          <div class="item-header">
+            <h3>正六边块</h3>
+            <div class="meta">C6 · 旋转 60° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <polygon points="120,28 168,56 168,112 120,140 72,112 72,56" fill="#d9f7f1" stroke="#15c7ab" stroke-width="3"/>
+            <text x="78" y="160" class="legend">最简单的 C6 实体块</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>简单直接的 C6 起点。<br><strong>常见破缺：</strong>单角缺口、单边变化。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>六柱环</h3>
+            <div class="meta">C6 · 旋转 60° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <circle cx="120" cy="90" r="8" fill="#6b7c90"/>
+            <circle cx="120" cy="40" r="16" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <circle cx="163" cy="65" r="16" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <circle cx="163" cy="115" r="16" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <circle cx="120" cy="140" r="16" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <circle cx="77" cy="115" r="16" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <circle cx="77" cy="65" r="16" fill="#b8d6ff" stroke="#4b83ff" stroke-width="3"/>
+            <text x="78" y="160" class="legend">最经典的 C6 cluster</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>最推荐的 C6 路线。<br><strong>常见破缺：</strong>改单个柱子、交替两组柱子。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>六臂星</h3>
+            <div class="meta">C6 · 旋转 60° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <g transform="translate(120,90)">
+              <rect x="-10" y="-54" width="20" height="108" rx="8" fill="#ffd4c4" stroke="#ff8c63" stroke-width="3"/>
+              <rect x="-10" y="-54" width="20" height="108" rx="8" fill="#ffd4c4" stroke="#ff8c63" stroke-width="3" transform="rotate(60)"/>
+              <rect x="-10" y="-54" width="20" height="108" rx="8" fill="#ffd4c4" stroke="#ff8c63" stroke-width="3" transform="rotate(120)"/>
+            </g>
+            <text x="79" y="160" class="legend">六臂 / 六瓣型母结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>适合多臂对称路线。<br><strong>常见破缺：</strong>单臂变化、交替两组臂变化。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>六孔环</h3>
+            <div class="meta">C6 · 旋转 60° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <circle cx="120" cy="90" r="60" fill="#eadfff" stroke="#9178ff" stroke-width="3"/>
+            <circle cx="120" cy="44" r="10" fill="#ffffff" stroke="#9178ff" stroke-width="2"/>
+            <circle cx="160" cy="67" r="10" fill="#ffffff" stroke="#9178ff" stroke-width="2"/>
+            <circle cx="160" cy="113" r="10" fill="#ffffff" stroke="#9178ff" stroke-width="2"/>
+            <circle cx="120" cy="136" r="10" fill="#ffffff" stroke="#9178ff" stroke-width="2"/>
+            <circle cx="80" cy="113" r="10" fill="#ffffff" stroke="#9178ff" stroke-width="2"/>
+            <circle cx="80" cy="67" r="10" fill="#ffffff" stroke="#9178ff" stroke-width="2"/>
+            <text x="78" y="160" class="legend">盘体 + 六孔母结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>适合局部孔扰动研究。<br><strong>常见破缺：</strong>改单孔、交替孔径差。</div>
+        </div>
+
+        <div class="item">
+          <div class="item-header">
+            <h3>六裂缝环</h3>
+            <div class="meta">C6 · 旋转 60° 重合</div>
+          </div>
+          <svg viewBox="0 0 240 180">
+            <circle cx="120" cy="90" r="56" fill="none" stroke="#15c7ab" stroke-width="12"/>
+            <g fill="#ffffff">
+              <rect x="116" y="18" width="8" height="24"/>
+              <rect x="156" y="40" width="8" height="24" transform="rotate(60 160 52)"/>
+              <rect x="156" y="116" width="8" height="24" transform="rotate(120 160 128)"/>
+              <rect x="116" y="138" width="8" height="24"/>
+              <rect x="76" y="116" width="8" height="24" transform="rotate(60 80 128)"/>
+              <rect x="76" y="40" width="8" height="24" transform="rotate(120 80 52)"/>
+            </g>
+            <text x="74" y="160" class="legend">环形 + 六裂缝结构</text>
+          </svg>
+          <div class="desc"><strong>适合作母版：</strong>适合角向裂缝扰动。<br><strong>常见破缺：</strong>改单裂缝、交替裂缝、单点缺口。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="note">
+      <h3>最后给你一个最重要的使用建议</h3>
+      <p>虽然上面我给你画了很多母版，但你后面不要一口气全部推进。最稳的顺序还是：</p>
+      <p><strong>第一步：</strong>先从 <code>C2</code> 的双柱或双脊开始，做出第一条稳定主线。</p>
+      <p><strong>第二步：</strong>再做 <code>C4</code> 的十字或方环，用来建立更强的群论表达。</p>
+      <p><strong>第三步：</strong>最后再把 <code>C6</code> 和径向高对称结构拿来扩展。</p>
+      <p>一句话总结就是：<strong>先做最容易建立规律的母版，再做最漂亮的群论结构。</strong></p>
+      <p>另外，为什么这里没有单独列出 <code>C1</code>、<code>C5</code>？因为：</p>
+      <ul>
+        <li><code>C1</code> 对称性太低，不适合作为“母版起点”。</li>
+        <li><code>C5</code> 在二维周期晶格超表面里不适合作为最自然的主线，通常不如 <code>C2/C3/C4/C6</code> 实用。</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

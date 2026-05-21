@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <link rel="stylesheet" href="assets/vars.css">
+  <link rel="stylesheet" href="assets/responsive.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FDTD 拓扑相变分析</title>
+<style>
+.topology-main {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  font-family: var(--font-sans);
+}
+.topology-main .section {
+  border-radius: 8px;
+}
+.topology-main .section h2 {
+  font-size: 15px;
+  letter-spacing: 0;
+}
+.chart-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--wb-muted);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+canvas {
+  width: 100%;
+  min-height: 260px;
+  max-height: 520px;
+  display: block;
+  border-radius: 8px;
+  background: #fff;
+}
+.axis { stroke: #94a3b8; stroke-width: 1; }
+.grid-line { stroke: #e2e8f0; stroke-width: 1; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.badge.good { background: var(--wb-success-soft); color: #0f766e; }
+.badge.bad { background: var(--wb-danger-soft); color: #991b1b; }
+.badge.warn { background: var(--wb-warning-soft); color: #92400e; }
+.loading {
+  color: var(--wb-muted);
+  padding: 20px;
+  line-height: 1.7;
+}
+.topology-guide {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 16px 0;
+}
+.topology-guide div {
+  border: 1px solid #d8eee9;
+  border-radius: 8px;
+  background: #f4fbfa;
+  padding: 10px 12px;
+}
+.topology-guide b {
+  display: block;
+  color: #063f3e;
+  margin-bottom: 4px;
+}
+.topology-guide span {
+  color: #52677b;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.todo {
+  display: grid;
+  gap: 10px;
+}
+.todo-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--wb-line);
+  border-radius: 8px;
+  background: #fff;
+}
+.todo-row b {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--wb-primary-soft);
+  color: var(--wb-primary);
+}
+.todo-row span {
+  min-width: 0;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.plot-wrap svg {
+  width: 100%;
+  min-height: 280px;
+  display: block;
+}
+</style>
+<link rel="stylesheet" href="assets/ui-refactor.css">
+<link rel="stylesheet" href="assets/fdtd-workbench.css?v=20260518_svgfix">
+</head>
+<body class="fdtd-shell topology-page" data-page="topology_analysis">
+<div class="fdtd-workbench">
+  <aside class="wb-sidebar">
+    <div class="wb-brand">
+      <div class="wb-logo">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M12 4v16" stroke="currentColor" stroke-width="2" fill="none"/><path d="m7 17 10-10" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+      </div>
+      <div>
+        <strong>FDTD 光谱物理诊断工作台</strong>
+        <span>拓扑分析 / 模式接力 / 降群验证</span>
+      </div>
+    </div>
+    <section class="wb-filter-card">
+      <div class="wb-side-title">领域条件<button type="button" id="sidebarResetBtn">重置</button></div>
+      <div class="wb-filter-field">
+        <label>分析对象</label>
+        <select>
+          <option>高对称母结构 → 可控扰动</option>
+          <option>BZF / 超晶胞折叠</option>
+          <option>模式接力趋势</option>
+        </select>
+      </div>
+      <div class="wb-filter-field">
+        <label>波长范围 (nm)</label>
+        <input value="850 - 1700" aria-label="波长范围">
+      </div>
+      <div class="wb-chip-row">
+        <span class="wb-chip active">热图</span>
+        <span class="wb-chip">趋势</span>
+        <span class="wb-chip">场图验证</span>
+      </div>
+    </section>
+    <section class="wb-tree-card">
+      <div class="wb-side-title">联动入口</div>
+      <div class="wb-run-list">
+        <a class="wb-run-item active" id="sideSpectralDiagLink" href="/spectral_physics_diagnostics.html"><span class="wb-run-dot"></span><span class="wb-run-name">光谱诊断</span><span>→</span></a>
+        <a class="wb-run-item" id="sideFieldLink" href="/field_phase_poynting_viewer.html"><span class="wb-run-dot warn"></span><span class="wb-run-name">场图联动</span><span>→</span></a>
+        <a class="wb-run-item" id="sideReportLink" href="/report_preview_print.html"><span class="wb-run-dot"></span><span class="wb-run-name">报告输出</span><span>→</span></a>
+      </div>
+    </section>
+    <div class="wb-side-foot">拓扑页会复用当前 run 参数，不绑定某一个 C6/C6v 特例。</div>
+  </aside>
+
+  <section class="wb-stage">
+    <header class="wb-topbar">
+<div class="wb-title-block">
+        <div class="wb-breadcrumb"><a href="/index.html">&#39318;&#39029;</a> <span>&#8250;</span> <a href="/global_spectral_leaderboard.html">&#20809;&#35889;&#35786;&#26029;</a> <span>&#8250;</span> <b>&#25299;&#25169;&#20998;&#26512;</b></div>
+        <h1 id="title">拓扑相变 / 模式接力分析</h1>
+        <p id="subtitle">正在读取选中的 FDTD run...</p>
+        <div class="wb-chip-row hero-meta" id="heroMeta"></div>
+      </div>
+      <div class="wb-top-actions">
+        <a class="wb-btn" href="/index.html">返回总览</a>
+        <a class="wb-btn" id="spectralDiagLink" href="/spectral_physics_diagnostics.html">光谱诊断</a>
+        <a class="wb-btn" id="compareLink" href="/spectral_compare.html">多谱线对比</a>
+        <a class="wb-btn" id="resourceLink" href="/resource_file_browser.html">资源浏览</a>
+        <button class="wb-btn primary" id="reloadBtn" type="button">重新扫描</button>
+      </div>
+    </header>
+
+    <nav class="wb-tabs"><a href="/spectral_physics_diagnostics.html" data-nav="diagnostics">光谱诊断</a><a href="/spectral_compare.html" data-nav="compare">多谱线对比</a><a href="/global_spectral_leaderboard.html" data-nav="leaderboard">全局排行</a><a href="/field_phase_poynting_viewer.html" data-nav="field">场图联动</a><a href="/missing_data_repair_center.html" data-nav="missing">缺失补算</a><a href="/batch_recompute_center.html" data-nav="tasks">任务中心</a><a href="/report_preview_print.html" data-nav="report">报告输出</a><a href="/resource_file_browser.html" data-nav="resources">资源浏览</a><a href="/data_quality_audit.html" data-nav="quality">质量审计</a><a class="active" href="/topology_transition_analysis.html" data-nav="topology">拓扑分析</a></nav>
+
+    <main class="wb-page-scroll topology-main">
+  <section class="section">
+    <h2>1. 当前结果可以说明什么</h2>
+    <div class="kpis" id="kpis"></div>
+    <div class="insight-box">
+      <div class="label">阅读方式</div>
+      <p id="mainInsight">本页把同一个 run 里的透射谱联动起来观察。热图用于查看谱带如何随扰动演化；明显跳变、反交叉、带隙闭合/重开、模式交接区域，是下一步加密扫描和场图验证的优先候选。</p>
+    </div>
+    <div class="topology-guide">
+      <div><b>先看热图</b><span>找连续谱带、断裂、反交叉和突变区间。</span></div>
+      <div><b>再看趋势</b><span>用主导特征波长和 rough Q 判断是否需要加密扫描。</span></div>
+      <div><b>最后验证</b><span>进入场图/相位/Poynting 页面补证据链。</span></div>
+    </div>
+  </section>
+
+  <section class="section" id="bzfSection" style="display:none">
+    <h2>2. BZF 检查：simple-copy 基线与真实扰动</h2>
+    <div id="bzfCard" class="insight-box"></div>
+    <div class="plot-wrap" id="bzfSketch"></div>
+  </section>
+
+  <section class="section">
+    <h2>3. 透射谱热图</h2>
+    <p>横轴是波长，纵轴是扰动值或扫描序号，颜色表示 |T|²。连续色带对应可能的模式族，断裂、交叉或突变位置需要结合场图继续验证。</p>
+    <div class="plot-wrap">
+      <div class="chart-title"><strong id="heatmapTitle">透射谱热图</strong><span id="heatmapScale"></span></div>
+      <div id="heatmap" class="loading">正在生成热图...</div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>4. 主导特征趋势</h2>
+    <p>这里的 T 是主导特征处的透射值：若 type=dip，则 T 是谷底透射 T_min；若 type=peak，则 T 是峰顶透射。FWHM rough 和 Q rough 是按半深/半高粗估，只用于候选排序，不作为最终物理结论。</p>
+    <div class="plot-wrap" id="featurePlot"></div>
+    <div class="table-wrap" id="featureTable"></div>
+  </section>
+
+  <section class="section">
+    <h2>5. 代表谱线叠加</h2>
+    <div class="plot-wrap" id="overlayPlot"></div>
+  </section>
+
+  <section class="section">
+    <h2>6. 拓扑相变研究 Todo</h2>
+    <div class="todo" id="todoList"></div>
+  </section>
+    </main>
+    <footer class="wb-status"><span>数据来源：本地 FDTD 结果库</span><span>拓扑分析不限定具体对称群，随 run 元数据自适应。</span></footer>
+  </section>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = v => String(v &#39318;&#39029; '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = (v, d=3) => { const n = Number(v); return Number.isFinite(n) ? n.toFixed(d).replace(/\.?0+$/,'') : '-'; };
+const qs = new URLSearchParams(location.search);
+const state = { runId: qs.get('run_id') || '', data: null, run: null, spectra: [] };
+function setMainEmpty(message) {
+  const main = document.querySelector('.topology-main') || document.querySelector('.wb-page-scroll');
+  if (main) main.innerHTML = `<section class="section"><div class="loading">${message}</div></section>`;
+}
+async function fetchJson(url) {
+  const res = await fetch(url);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok === false) throw new Error(data.error || `${res.status} ${res.statusText}`);
+  return data;
+}
+function runParts(run) {
+  const parts = String(run?.relative_path || run?.name || '').split(/[\\/]/).filter(Boolean);
+  const resultIndex = parts.lastIndexOf('results');
+  return {
+    mother: resultIndex >= 1 ? parts[resultIndex - 1] : (run?.group || '').split('/').pop()?.trim() || '',
+    perturbation: resultIndex >= 0 && parts[resultIndex + 1] ? parts[resultIndex + 1] : (run?.perturbation || ''),
+    runName: run?.name || parts.at(-1) || '',
+  };
+}
+function runDisplayName(run) {
+  const parts = runParts(run);
+  return [parts.mother, parts.perturbation, parts.runName].filter(Boolean).join(' / ') || run?.name || 'Selected run';
+}
+if (state.runId) {
+  $('spectralDiagLink').href = `/spectral_physics_diagnostics.html?run_id=${encodeURIComponent(state.runId)}`;
+  $('compareLink').href = `/spectral_compare.html?run_id=${encodeURIComponent(state.runId)}`;
+  $('resourceLink').href = `/resource_file_browser.html?run_id=${encodeURIComponent(state.runId)}`;
+  $('sideSpectralDiagLink').href = `/spectral_physics_diagnostics.html?run_id=${encodeURIComponent(state.runId)}`;
+  $('sideFieldLink').href = `/field_phase_poynting_viewer.html?run_id=${encodeURIComponent(state.runId)}`;
+  $('sideReportLink').href = `/report_preview_print.html?run_id=${encodeURIComponent(state.runId)}`;
+}
+
+function syncRunLinks(runId) {
+  if (!runId) return;
+  $('spectralDiagLink').href = `/spectral_physics_diagnostics.html?run_id=${encodeURIComponent(runId)}`;
+  $('compareLink').href = `/spectral_compare.html?run_id=${encodeURIComponent(runId)}`;
+  $('resourceLink').href = `/resource_file_browser.html?run_id=${encodeURIComponent(runId)}`;
+  $('sideSpectralDiagLink').href = `/spectral_physics_diagnostics.html?run_id=${encodeURIComponent(runId)}`;
+  $('sideFieldLink').href = `/field_phase_poynting_viewer.html?run_id=${encodeURIComponent(runId)}`;
+  $('sideReportLink').href = `/report_preview_print.html?run_id=${encodeURIComponent(runId)}`;
+}
+
+function compactRunLabel(run) {
+  return runDisplayName(run);
+}
+
+function valueOfItem(item) {
+  const keys = ['eta_nm','value_nm','delta_L_nm','scan_parameter_value_nm','value_deg','index'];
+  for (const key of keys) {
+    const n = Number(item?.[key] &#39318;&#39029; item?.params?.[key]);
+    if (Number.isFinite(n)) return n;
+  }
+  return Number(item?.index || 0);
+}
+
+function colorRamp(t) {
+  const stops = [[39,54,149],[69,117,180],[116,173,209],[224,243,248],[254,224,144],[253,174,97],[244,109,67],[165,0,38]];
+  const x = Math.max(0, Math.min(1, t || 0)) * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(x));
+  const f = x - i;
+  const rgb = stops[i].map((v,k) => Math.round(v + (stops[i+1][k] - v) * f));
+  return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+}
+
+function interpolate(points, grid) {
+  const clean = points.map(p => [Number(p[0]), Number(p[1])]).filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1])).sort((a,b)=>a[0]-b[0]);
+  if (clean.length < 2) return grid.map(() => NaN);
+  let j = 0;
+  return grid.map(x => {
+    while (j < clean.length - 2 && clean[j + 1][0] < x) j++;
+    const [x0,y0] = clean[j], [x1,y1] = clean[j+1];
+    if (x < x0 || x > x1 || x1 === x0) return NaN;
+    return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+  });
+}
+
+function median(values) {
+  const clean = values.map(Number).filter(Number.isFinite).sort((a,b)=>a-b);
+  if (!clean.length) return NaN;
+  const mid = Math.floor(clean.length / 2);
+  return clean.length % 2 ? clean[mid] : (clean[mid - 1] + clean[mid]) / 2;
+}
+
+function estimateFeature(points) {
+  const clean = points.map(p => [Number(p[0]), Number(p[1])]).filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1])).sort((a,b)=>a[0]-b[0]);
+  if (clean.length < 5) return null;
+  const ys = clean.map(p => p[1]);
+  let minIdx = 0, maxIdx = 0;
+  ys.forEach((y,i) => { if (y < ys[minIdx]) minIdx = i; if (y > ys[maxIdx]) maxIdx = i; });
+  const edgeCount = Math.max(2, Math.floor(clean.length * 0.08));
+  const edge = [...ys.slice(0, edgeCount), ...ys.slice(-edgeCount)];
+  const baseline = median(edge);
+  const dipAmp = baseline - ys[minIdx];
+  const peakAmp = ys[maxIdx] - baseline;
+  const isDip = dipAmp >= peakAmp;
+  const idx = isDip ? minIdx : maxIdx;
+  const level = isDip ? baseline - dipAmp / 2 : baseline + peakAmp / 2;
+  const crosses = [];
+  for (let i = 0; i < clean.length - 1; i++) {
+    const y0 = clean[i][1], y1 = clean[i+1][1];
+    if ((y0 - level) * (y1 - level) < 0) {
+      const x0 = clean[i][0], x1 = clean[i+1][0];
+      crosses.push(x0 + (level - y0) * (x1 - x0) / (y1 - y0));
+    }
+  }
+  const left = crosses.filter(x => x < clean[idx][0]).pop();
+  const right = crosses.find(x => x > clean[idx][0]);
+  const fwhm = Number.isFinite(left) && Number.isFinite(right) ? Math.abs(right - left) : null;
+  const value = clean[idx][1];
+  const prominence = Math.abs(baseline - value);
+  const contrast = Number.isFinite(baseline) && Math.abs(baseline) > 1e-12 ? prominence / Math.abs(baseline) : null;
+  return {
+    kind:isDip ? 'dip' : 'peak',
+    wavelength:clean[idx][0],
+    value,
+    baseline,
+    halfLevel: level,
+    prominence,
+    contrast,
+    fwhm,
+    q:fwhm && fwhm > 0 ? clean[idx][0] / fwhm : null
+  };
+}
+
+function bzfInfo() {
+  const run = state.run || {};
+  const items = run.items || [];
+  const text = JSON.stringify({ name:run.name, path:run.relative_path, perturbation:run.perturbation, items:items.map(i=>i.params || {}) }).toLowerCase();
+  const isBzf = /bzf|brillouin|folding|supercell|eta|deltal|布里渊|折叠|超胞/.test(text);
+  if (!isBzf) return null;
+  const params = Object.assign({}, ...items.map(i => i.params || {}));
+  const etaValues = items.map(i => Number(i.eta_nm &#39318;&#39029; i.value_nm &#39318;&#39029; i.params?.eta_nm &#39318;&#39029; i.params?.delta_L_nm)).filter(Number.isFinite);
+  const hasZero = etaValues.some(v => Math.abs(v) < 1e-9);
+  const hasPhysical = etaValues.some(v => Math.abs(v) > 1e-9);
+  return {
+    primitive: params.primitive_period_x_nm || params.PRIMITIVE_PERIOD_X_NM || '未记录',
+    supercell: params.supercell_period_x_nm || params.SUPERCELL_PERIOD_X_NM || '未记录',
+    folding: params.folding_order || params.FOLDING_ORDER || '未记录',
+    strategy: params.bzf_strategy || params.BZF_STRATEGY || '未记录',
+    etaMin: etaValues.length ? Math.min(...etaValues) : null,
+    etaMax: etaValues.length ? Math.max(...etaValues) : null,
+    hasZero, hasPhysical, count: etaValues.length
+  };
+}
+
+function renderKpis() {
+  const bad = (state.run.items || []).filter(i => i.unconverged || Number(i.max_abs2 &#39318;&#39029; i.metrics?.t_max) > 1).length;
+  const vals = state.spectra.map(s => s.value).filter(Number.isFinite);
+  const features = state.spectra.map(s => s.feature).filter(Boolean);
+  const lam = features.map(f => f.wavelength).filter(Number.isFinite);
+  const jump = lam.length > 1 ? Math.max(...lam.slice(1).map((v,i)=>Math.abs(v-lam[i]))) : 0;
+  $('kpis').innerHTML = `
+    <div class="kpi"><b>${state.spectra.length}</b><span>可读取谱线</span></div>
+    <div class="kpi"><b>${bad}</b><span>不收敛 / maxT&gt;1</span></div>
+    <div class="kpi"><b>${vals.length ? `${fmt(Math.min(...vals),2)} 到 ${fmt(Math.max(...vals),2)}` : '-'}</b><span>扫描范围</span></div>
+    <div class="kpi"><b>${fmt(jump,2)} nm</b><span>最大特征跳变</span></div>`;
+  $('mainInsight').textContent = bad
+    ? '在做强拓扑结论前，先处理不收敛谱线。本页先用于定位候选相变窗口。'
+    : '当前数据可用于初筛模式接力、反交叉、候选带隙闭合/重开窗口。';
+}
+
+function renderBzfCard() {
+  const info = bzfInfo();
+  const section = $('bzfSection');
+  if (!info) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  const verdict = info.hasPhysical
+    ? '检测到 physical BZF perturbation：eta != 0，primitive 平移对称被破坏。'
+    : '当前只看到 simple-copy baseline：eta=0 或 eta 未记录。';
+  const checks = [
+    ['eta=0 基线', info.hasZero ? 'ok' : '缺失/未知'],
+    ['eta!=0 真实扰动', info.hasPhysical ? 'ok' : '缺失'],
+    ['eta 扫描点 >= 5', info.count >= 5 ? 'ok' : `${info.count || 0} 点`],
+    ['primitive period x', info.primitive],
+    ['supercell period x', info.supercell],
+    ['BZF strategy', info.strategy]
+  ];
+  $('bzfCard').innerHTML = `
+    <div class="label">BZF 判读</div>
+    <p><strong>${esc(verdict)}</strong></p>
+    <div class="kpis">
+      <div class="kpi"><b>${esc(info.primitive)}</b><span>primitive period x (nm)</span></div>
+      <div class="kpi"><b>${esc(info.supercell)}</b><span>supercell period x (nm)</span></div>
+      <div class="kpi"><b>${esc(info.folding)}</b><span>folding order</span></div>
+      <div class="kpi"><b>${info.etaMin === null ? '-' : `${fmt(info.etaMin,2)}~${fmt(info.etaMax,2)}`}</b><span>eta_nm range</span></div>
+    </div>
+    <div class="table-wrap"><table><tbody>${checks.map(([k,v])=>`<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</tbody></table></div>`;
+  const primitive = Number(info.primitive) || 900;
+  const supercell = Number(info.supercell) || primitive * 2;
+  const eta = Number.isFinite(info.etaMax) ? info.etaMax : 0;
+  const xs = [-630 - eta, -270 + eta, 270 + eta, 630 - eta];
+  const sx = x => 60 + (x + supercell / 2) / supercell * 780;
+  $('bzfSketch').innerHTML = `<svg viewBox="0 0 900 210">
+    <rect x="60" y="48" width="780" height="96" fill="#ecfdf5" stroke="#0f766e" stroke-width="3"/>
+    <line x1="${sx(-primitive/2)}" y1="38" x2="${sx(-primitive/2)}" y2="156" stroke="#334155" stroke-dasharray="7 5"/>
+    <line x1="${sx(primitive/2)}" y1="38" x2="${sx(primitive/2)}" y2="156" stroke="#334155" stroke-dasharray="7 5"/>
+    ${xs.map((x,i)=>`<circle cx="${sx(x)}" cy="96" r="24" fill="#99f6e4" stroke="#0f766e" stroke-width="2"/><text x="${sx(x)}" y="101" text-anchor="middle" font-weight="700">${i+1}</text>`).join('')}
+    <text x="60" y="28">supercell A=${fmt(supercell,0)} nm</text>
+    <text x="${sx(-primitive/2)+8}" y="174">primitive boundary</text>
+    <text x="60" y="196">eta=${fmt(eta,3)} nm；示意图只用于检查 A/B 子 cell 是否等价。</text>
+  </svg>`;
+}
+
+function renderHeatmap() {
+  const spectra = state.spectra;
+  if (spectra.length < 2) { $('heatmap').innerHTML = '<div class="loading">至少需要 2 条谱线才能生成热图。</div>'; return; }
+  const mins = spectra.map(s => Math.min(...s.points.map(p=>Number(p[0])).filter(Number.isFinite)));
+  const maxs = spectra.map(s => Math.max(...s.points.map(p=>Number(p[0])).filter(Number.isFinite)));
+  const xmin = Math.max(...mins), xmax = Math.min(...maxs);
+  if (!(xmax > xmin)) {
+    $('heatmap').innerHTML = '<div class="loading">谱线波长范围没有共同重叠区间，无法生成热图。可先查看代表谱线叠加。</div>';
+    $('heatmapScale').textContent = '';
+    return;
+  }
+  const cols = 360;
+  const grid = Array.from({length:cols},(_,i)=>xmin+(xmax-xmin)*i/(cols-1));
+  const z = spectra.map(s => interpolate(s.points, grid));
+  const values = z.flat().filter(Number.isFinite);
+  if (!values.length) {
+    $('heatmap').innerHTML = '<div class="loading">暂无可绘制热图数据。</div>';
+    $('heatmapScale').textContent = '';
+    return;
+  }
+  const min = Math.min(...values), max = Math.max(...values);
+  const canvas = document.createElement('canvas');
+  canvas.width = cols;
+  canvas.height = Math.max(180, spectra.length * 28);
+  const ctx = canvas.getContext('2d');
+  const cellH = canvas.height / spectra.length;
+  z.forEach((row,r) => row.forEach((v,c) => { ctx.fillStyle = Number.isFinite(v) ? colorRamp((v-min)/((max-min)||1)) : '#f1f5f9'; ctx.fillRect(c, r*cellH, 1, Math.ceil(cellH)); }));
+  $('heatmap').innerHTML = '';
+  $('heatmap').appendChild(canvas);
+  $('heatmapScale').textContent = `波长 ${fmt(xmin,1)}-${fmt(xmax,1)} nm；T ${fmt(min,4)}-${fmt(max,4)}`;
+}
+
+function renderLinePlot(id, series, opts={}) {
+  const width = 1080, height = opts.height || 430;
+  const pad = {left:68,right:24,top:26,bottom:58};
+  const clean = series.map((s,idx)=>({ ...s, color:s.color || ['#0f766e','#2563eb','#dc2626','#7c3aed','#ca8a04','#0891b2'][idx%6], points:s.points.filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1])) })).filter(s=>s.points.length>=2);
+  if (!clean.length) { $(id).innerHTML = '<div class="loading">当前数据点不足，暂时无法绘图。</div>'; return; }
+  const xs = clean.flatMap(s=>s.points.map(p=>p[0]));
+  const ys = clean.flatMap(s=>s.points.map(p=>p[1]));
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const innerW = width-pad.left-pad.right, innerH = height-pad.top-pad.bottom;
+  const sx = x => pad.left + (x-minX)/((maxX-minX)||1)*innerW;
+  const sy = y => pad.top + innerH - (y-minY)/((maxY-minY)||1)*innerH;
+  const grid = [0,.25,.5,.75,1].map(r => {
+    const x = pad.left + innerW*r, y = pad.top + innerH*r;
+    return `<line class="grid-line" x1="${pad.left}" y1="${y}" x2="${pad.left+innerW}" y2="${y}"></line><line class="grid-line" x1="${x}" y1="${pad.top}" x2="${x}" y2="${pad.top+innerH}"></line>`;
+  }).join('');
+  const paths = clean.map(s => {
+    const step = Math.max(1, Math.ceil(s.points.length / 650));
+    const pts = s.points.filter((_,i)=>i%step===0);
+    const d = pts.map((p,i)=>`${i?'L':'M'}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(' ');
+    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width||1.8}" opacity=".92"><title>${esc(s.name)}</title></path>`;
+  }).join('');
+  const dots = opts.dots ? clean.map(s => s.points.map(p => `<circle cx="${sx(p[0]).toFixed(1)}" cy="${sy(p[1]).toFixed(1)}" r="4" fill="${s.color}"><title>${esc(s.name)} ${fmt(p[0],2)}, ${fmt(p[1],3)}</title></circle>`).join('')).join('') : '';
+  const legend = clean.slice(0,8).map(s=>`<span style="display:inline-flex;align-items:center;gap:6px;margin-right:14px;"><i style="width:18px;height:3px;background:${s.color};display:inline-block;"></i>${esc(s.name).slice(0,42)}</span>`).join('');
+  $(id).innerHTML = `<div class="chart-title"><span>${legend}</span></div><svg viewBox="0 0 ${width} ${height}">${grid}<line class="axis" x1="${pad.left}" y1="${pad.top+innerH}" x2="${pad.left+innerW}" y2="${pad.top+innerH}"></line><line class="axis" x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${pad.top+innerH}"></line>${paths}${dots}<text x="${pad.left}" y="${height-18}">${esc(opts.xTitle||'x')} ${fmt(minX,2)}-${fmt(maxX,2)}</text><text x="12" y="${pad.top+10}" transform="rotate(-90 12 ${pad.top+10})">${esc(opts.yTitle||'y')} ${fmt(minY,4)}-${fmt(maxY,4)}</text></svg>`;
+}
+
+function renderFeatures() {
+  const rows = state.spectra.filter(s => s.feature);
+  renderLinePlot('featurePlot', [
+    { name:'主导特征波长', points:rows.map(s=>[s.value,s.feature.wavelength]), color:'#0f766e', width:2.4 },
+    { name:'Q rough / 10', points:rows.map(s=>[s.value,Number(s.feature.q||0)/10]).filter(p=>Number.isFinite(p[1])&&p[1]>0), color:'#ca8a04' }
+  ], { xTitle:'扰动参数', yTitle:'波长 / rough Q', dots:true, height:390 });
+  $('featureTable').innerHTML = `<table><thead><tr><th>idx</th><th>value</th><th>type</th><th>lambda</th><th>T_feature</th><th>baseline</th><th>contrast</th><th>FWHM rough</th><th>Q rough</th><th>status</th></tr></thead><tbody>${rows.map(s=>`<tr><td>${esc(s.item.index)}</td><td>${fmt(s.value,3)}</td><td>${esc(s.feature.kind)}</td><td>${fmt(s.feature.wavelength,3)}</td><td>${fmt(s.feature.value,6)}</td><td>${fmt(s.feature.baseline,5)}</td><td>${fmt(s.feature.contrast,3)}</td><td>${fmt(s.feature.fwhm,4)}</td><td>${fmt(s.feature.q,2)}</td><td>${s.item.unconverged ? '<span class="badge bad">建议复跑</span>' : '<span class="badge good">可浏览</span>'}</td></tr>`).join('')}</tbody></table>`;
+}
+
+function renderOverlay() {
+  const spectra = state.spectra;
+  const take = Math.min(8, spectra.length);
+  const picked = Array.from({length:take},(_,i)=>spectra[Math.round(i*(spectra.length-1)/Math.max(1,take-1))]);
+  renderLinePlot('overlayPlot', picked.map(s=>({ name:`${fmt(s.value,2)} idx ${s.item.index}`, points:s.points.map(p=>[Number(p[0]),Number(p[1])]) })), { xTitle:'波长 (nm)', yTitle:'|T|^2', height:470 });
+}
+
+function renderTodo() {
+  const bad = (state.run.items || []).filter(i => i.unconverged || Number(i.max_abs2 &#39318;&#39029; i.metrics?.t_max) > 1).length;
+  const rows = [
+    ['1','清理不收敛谱线',bad ? '最高优先级' : '已就绪',bad ? `当前有 ${bad} 条可疑谱线；做结论前先复跑或归档。` : '未检测到主要收敛风险。'],
+    ['2','围绕热图突变处加密扫描','重要','在特征跳变、反交叉、可能带隙闭合/重开区域减小步长。'],
+    ['3','导出临界点前/中/后的 E/H 场图','重要','比较候选相变点两侧的对称性、局域性和模式奇偶性。'],
+    ['4','补充 kx/ky 或角度扫描','核心','拓扑相变需要能带/带隙行为支撑，不能只依赖正入射透射谱。'],
+    ['5','计算远场偏振绕数或拓扑荷','最终证据','用绕数产生/湮灭或符号变化作为更强的拓扑论证。']
+  ];
+  $('todoList').innerHTML = rows.map(([i,title,tag,text])=>`<div class="todo-row"><b>${i}</b><span><strong>${esc(title)}</strong><br>${esc(text)}</span><span class="badge warn">${esc(tag)}</span></div>`).join('');
+}
+
+async function readScan(force=false) {
+  let res = await fetch(`/api/scan${force ? '?refresh=1' : '?cache_only=1'}`);
+  let data = await res.json();
+  if (data.empty_cache || !data.runs?.length) {
+    res = await fetch('/api/scan');
+    data = await res.json();
+  }
+  return data;
+}
+
+async function readScanSafe(force=false) {
+  try {
+    return await readScan(force);
+  } catch (err) {
+    console.warn('topology scan cache failed', err);
+    return { runs: [] };
+  }
+}
+
+async function autoRunId() {
+  if (state.runId) return state.runId;
+  try {
+    const data = await fetchJson('/api/spectral-diagnostics');
+    const rows = data.rankings?.overall || [];
+    const first = rows.find(row => row.run_id);
+    if (first?.run_id) return first.run_id;
+  } catch (err) {
+    console.warn('spectral auto run failed', err);
+  }
+  return '';
+}
+
+function spectraFromPayload(payload) {
+  return (payload.items || [])
+    .filter(item => item.points?.length)
+    .map(item => {
+      const points = item.points.map(p => [Number(p[0]), Number(p[1])]).filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+      const scanValue = Number(item.scan_value &#39318;&#39029; item.value_nm &#39318;&#39029; item.params?.value_nm &#39318;&#39029; item.index);
+      const fallbackValue = Number.isFinite(scanValue) ? scanValue : Number(item.index || 0);
+      return { item, points, value: fallbackValue, feature: estimateFeature(points) };
+    })
+    .sort((a, b) => a.value - b.value);
+}
+
+function mergeRunSummary(spectralRun, scanRun) {
+  return {
+    ...(scanRun || {}),
+    ...(spectralRun || {}),
+    items: spectralRun?.items || scanRun?.items || [],
+    id: spectralRun?.id || scanRun?.id || state.runId,
+    name: spectralRun?.name || scanRun?.name || '',
+    relative_path: spectralRun?.relative_path || scanRun?.relative_path || '',
+    group: spectralRun?.group || scanRun?.group || '',
+    perturbation: spectralRun?.perturbation || scanRun?.perturbation || '',
+  };
+}
+
+async function load(force=false) {
+  $('subtitle').textContent = '正在读取 run 与谱线数据...';
+  const candidateRunId = await autoRunId();
+  if (candidateRunId && !state.runId) {
+    state.runId = candidateRunId;
+    const url = new URL(location.href);
+    url.searchParams.set('run_id', candidateRunId);
+    history.replaceState(null, '', url.toString());
+    syncRunLinks(candidateRunId);
+  }
+
+  const scanPromise = readScanSafe(force);
+  const spectralPromise = state.runId
+    ? fetchJson(`/api/spectral-diagnostics?run_id=${encodeURIComponent(state.runId)}${force ? '&refresh=1' : ''}`).catch(err => {
+        console.warn('topology spectral payload failed', err);
+        return null;
+      })
+    : Promise.resolve(null);
+  const [scanData, spectralPayload] = await Promise.all([scanPromise, spectralPromise]);
+
+  state.data = scanData || { runs: [] };
+  const runs = state.data.runs || [];
+  const scanRun = runs.find(r => String(r.id) === String(state.runId));
+  const fallbackRun = runs.find(r => String(r.name || '').startsWith('run_full') && (r.items || []).filter(i=>i.xlsx_id).length >= 3);
+  state.run = mergeRunSummary(spectralPayload?.run, scanRun || fallbackRun);
+  if (!state.run?.id) {
+    $('subtitle').textContent = '没有找到可分析的 run。';
+    setMainEmpty('没有找到至少包含 3 条 Excel 谱线的 run。');
+    return;
+  }
+  state.spectra = spectralPayload?.items?.length ? spectraFromPayload(spectralPayload) : [];
+  if (!state.spectra.length && state.run.items?.length) {
+    const items = (state.run.items || []).filter(i => i.xlsx_id).sort((a,b)=>valueOfItem(a)-valueOfItem(b));
+    for (const item of items.slice(0,120)) {
+      try {
+        const data = await fetchJson(`/api/xlsx?id=${encodeURIComponent(item.xlsx_id)}`);
+        if (data.points?.length) {
+          const points = data.points.map(p=>[Number(p[0]),Number(p[1])]).filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1]));
+          state.spectra.push({ item, points, value:valueOfItem(item), feature:estimateFeature(points) });
+        }
+      } catch (err) { console.warn(err); }
+    }
+  }
+  if (state.run?.id) {
+    syncRunLinks(state.run.id);
+  }
+  $('title').textContent = `${compactRunLabel(state.run)} / 拓扑分析`;
+  $('subtitle').textContent = state.run.relative_path || state.run.name;
+  const bad = (state.run.items || []).filter(i => i.unconverged || Number(i.max_abs2 &#39318;&#39029; i.metrics?.t_max) > 1).length;
+  $('heroMeta').innerHTML = `<span>${state.spectra.length} 条 Excel 谱线</span><span>${bad} 条可疑谱线</span><span>${esc(state.run.reduction_path || '降群路径未记录')}</span><span>${esc(state.run.name)}</span>`;
+  if (state.spectra.length < 2) {
+    setMainEmpty(`当前 run 只读取到 ${state.spectra.length} 条可绘制 Excel 谱线，暂时无法做拓扑热图。建议先回到光谱诊断确认谱线文件。`);
+    return;
+  }
+  renderKpis();
+  renderBzfCard();
+  renderHeatmap();
+  renderFeatures();
+  renderOverlay();
+  renderTodo();
+}
+
+$('reloadBtn').addEventListener('click', () => load(true));
+load().catch(err => {
+  console.error(err);
+  $('subtitle').textContent = '加载失败';
+  setMainEmpty(`加载失败：${esc(err.message)}`);
+});
+</script>
+</body>
+</html>

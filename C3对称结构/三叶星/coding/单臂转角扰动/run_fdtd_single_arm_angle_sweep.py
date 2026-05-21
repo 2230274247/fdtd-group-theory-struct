@@ -1,0 +1,63 @@
+# -*- coding: utf-8 -*-
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from c3_sweep_common import run
+
+# ========================= 用户主要修改区 =========================
+RUN_MODE_DEFAULT = "ask"
+TEST_POINT_COUNT = 3
+TARGET_ARM_INDEX = 1
+START_DEG = -15.0
+END_DEG = 15.0
+STEP_DEG = 5.0
+ANGLE_DELTA_START_DEG = START_DEG
+ANGLE_DELTA_STOP_DEG = END_DEG
+ANGLE_DELTA_STEP_DEG = STEP_DEG
+AUTO_ANGLE_STEP = True
+TARGET_SCAN_POINTS = 7
+ANGLE_STEP_MIN_DEG = 2.0
+ANGLE_STEP_MAX_DEG = 6.0
+SIMULATION_TIME_FS = 10000.0
+SIMULATION_TIME_S = SIMULATION_TIME_FS * 1e-15
+AUTO_SHUTOFF_MIN = 1e-12
+MESH_ACCURACY = 2
+DT_STABILITY_FACTOR = 0.8
+
+CONFIG = dict(
+    STRUCTURE_ROOT=r"H:\FDTD outcome\struct\群论_struct\C3对称结构\三叶星",
+    STRUCTURE_CN_NAME="三叶星",
+    SAFE_NAME="three_lobed_star",
+    LUMERICAL_ROOT=r"D:\Program Files\Lumerical\v202",
+    ASCII_WORK_ROOT=r"H:\FDTD_CodeX\fdtd_ascii_work",
+    PERTURBATION_NAME="单臂转角扰动",
+    GROUP_PATH="C3 -> C1",
+    OBJECT_NAME="Si_lobe",
+    OPERATION="set_rotation_delta",
+    OPERATION_DESCRIPTION="只给一个 Si_lobe 的 rotation 1 增加角度偏差。",
+    TARGET_INDICES=(TARGET_ARM_INDEX,),
+    VALUE_NAME="arm_angle_delta",
+    SCAN_LABEL="single_arm_angle",
+    SCAN_UNIT="deg",
+    SCAN_START_DEG=ANGLE_DELTA_START_DEG,
+    SCAN_STOP_DEG=ANGLE_DELTA_STOP_DEG,
+    SCAN_STEP_DEG=ANGLE_DELTA_STEP_DEG,
+    AUTO_SCAN_STEP=AUTO_ANGLE_STEP,
+    TARGET_SCAN_POINTS=TARGET_SCAN_POINTS,
+    SCAN_STEP_MIN_DEG=ANGLE_STEP_MIN_DEG,
+    SCAN_STEP_MAX_DEG=ANGLE_STEP_MAX_DEG,
+    TEST_POINT_COUNT=TEST_POINT_COUNT,
+    RUN_MODE_DEFAULT=RUN_MODE_DEFAULT,
+    SIMULATION_TIME_FS=SIMULATION_TIME_FS,
+    SIMULATION_TIME_S=SIMULATION_TIME_S,
+    AUTO_SHUTOFF_MIN=AUTO_SHUTOFF_MIN,
+    MESH_ACCURACY=MESH_ACCURACY,
+    DT_STABILITY_FACTOR=DT_STABILITY_FACTOR,
+    T_MONITOR_NAME="T",
+    GEOMETRY_OBJECTS=("Si_lobe",),
+    USER_GUIDE=["- ANGLE_DELTA 是相对母版角度的增量；例如 +5 表示当前臂旋转角多 5 度。"],
+)
+
+if __name__ == "__main__":
+    run(CONFIG)
+

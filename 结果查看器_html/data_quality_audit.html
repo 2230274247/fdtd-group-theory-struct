@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <link rel="stylesheet" href="assets/vars.css">
+  <link rel="stylesheet" href="assets/responsive.css">
+<meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FDTD 光谱物理诊断工作台 - 质量审计</title>
+  <script>window.__plotlyLoadFailed=false;window.loadPlotlyFallback=function(){window.__plotlyLoadFailed=true;};</script>
+  <script defer src="assets/vendor/plotly-2.35.2.min.js" onerror="window.loadPlotlyFallback()"></script>
+  <link rel="stylesheet" href="assets/ui-refactor.css">
+  <link rel="stylesheet" href="assets/fdtd-workbench.css?v=20260518_svgfix">
+</head>
+<body class="fdtd-shell" data-page="data_quality">
+  <div class="fdtd-workbench">
+    <aside class="wb-sidebar">
+      <div class="wb-brand"><div class="wb-logo"><svg viewBox="0 0 24 24"><path d="M12 3 4 7v5c0 5 3.4 8.5 8 9 4.6-.5 8-4 8-9V7z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m9 12 2 2 4-5" fill="none" stroke="currentColor" stroke-width="2"/></svg></div><div><strong>FDTD 光谱物理诊断工作台</strong><span>数据完整性 / 质量审计</span></div></div>
+      <section class="wb-filter-card"><div class="wb-side-title">审计条件<button type="button">重置</button></div><div class="wb-filter-field"><label>目标函数</label><select id="targetMode"><option value="overall">综合评分</option><option value="notch">notch</option><option value="passband">passband</option><option value="fano">Fano</option><option value="q_mode">high-Q</option></select></div><div class="wb-chip-row"><span class="wb-chip active">完整性</span><span class="wb-chip">异常谱线</span><span class="wb-chip">缺证据</span></div></section>
+      <section class="wb-tree-card"><div class="wb-side-title">运行目录</div><div class="wb-tree-search"><input id="sideSearch" placeholder="搜索 run 名称 / 路径"></div><div class="wb-run-list" id="sideRunList"></div></section>
+      <div class="wb-side-foot" id="sideFoot">正在读取结果库...</div>
+    </aside>
+    <section class="wb-stage">
+      <header class="wb-topbar">
+<div class="wb-breadcrumb" id="pageCrumb"></div><div class="wb-top-actions"><button class="wb-btn" id="refreshBtn" type="button">刷新</button><button class="wb-btn primary" id="exportSummaryBtn" type="button">导出报告</button><a class="wb-btn" href="/index.html">返回总览</a></div></header>
+      <nav class="wb-tabs"><a href="/spectral_physics_diagnostics.html" data-nav="diagnostics">光谱诊断</a><a href="/spectral_compare.html" data-nav="compare">多谱线对比</a><a href="/global_spectral_leaderboard.html" data-nav="leaderboard">全局排行</a><a href="/field_phase_poynting_viewer.html" data-nav="field">场图联动</a><a href="/missing_data_repair_center.html" data-nav="missing">缺失补算</a><a href="/batch_recompute_center.html" data-nav="tasks">任务中心</a><a href="/report_preview_print.html" data-nav="report">报告输出</a><a href="/resource_file_browser.html" data-nav="resources">资源浏览</a><a href="/data_quality_audit.html" data-nav="quality">质量审计</a><a href="/topology_transition_analysis.html" data-nav="topology">拓扑分析</a></nav>
+      <main class="wb-page-scroll" id="pageRoot"></main>
+      <footer class="wb-status"><span id="statusLeft">准备就绪</span><span id="statusRight"></span></footer>
+    </section>
+  </div>
+  <div class="wb-modal-layer" id="modalLayer"></div>
+  <div class="wb-drawer-layer" id="drawerLayer"></div>
+  <script defer src="assets/fdtd-page-suite.js?v=20260518_svgfix"></script>
+</body>
+</html>

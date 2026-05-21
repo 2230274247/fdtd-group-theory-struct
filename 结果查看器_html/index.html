@@ -1,0 +1,3621 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <link rel="stylesheet" href="assets/vars.css">
+  <link rel="stylesheet" href="assets/responsive.css">
+<meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FDTD 群论结构结果查看器</title>
+  <script>
+    window.__plotlyReady = false;
+    window.__plotlyLoadFailed = false;
+    window.loadPlotlyFallback = function () {
+      if (window.Plotly || document.querySelector('script[data-plotly-cdn]')) return;
+      const script = document.createElement('script');
+      script.src = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
+      script.defer = true;
+      script.dataset.plotlyCdn = '1';
+      script.onload = () => { window.__plotlyReady = true; };
+      script.onerror = () => {
+        window.__plotlyLoadFailed = true;
+        console.warn('Plotly 加载失败，页面将使用内置 SVG 曲线 fallback。');
+      };
+      document.head.appendChild(script);
+    };
+  </script>
+  <script defer src="assets/vendor/plotly-2.35.2.min.js" onload="window.__plotlyReady=true" onerror="window.loadPlotlyFallback()"></script>
+  <link rel="stylesheet" href="assets/app.css">
+  <link rel="stylesheet" href="assets/ui-refactor.css">
+  <link rel="stylesheet" href="assets/fdtd-workbench.css?v=20260518_svgfix">
+
+</head>
+<body data-page="index">
+  <div class="app">
+    <header class="app-header">
+<div class="title">
+        <span class="app-kicker">本地 FDTD 控制台 / 群论结构数据工作台</span>
+        <h1>FDTD 群论结构结果查看器</h1>
+        <div class="root-path" id="rootPath"></div>
+      </div>
+      <div class="job-strip idle" id="jobStrip" hidden>
+        <div class="job-topline">
+          <span class="job-current" id="jobCurrent">当前无运行任务</span>
+          <span id="jobPercent">0%</span>
+        </div>
+        <div class="job-progress"><span id="jobProgressBar"></span></div>
+      </div>
+      <div class="toolbar">
+        <nav class="toolbar-group" aria-label="主导航">
+          <button class="btn" id="dashboardBtn">总览</button>
+          <button class="btn" id="controllerBtn">网页总控</button>
+          <button class="btn" id="managerBtn">结果管理</button>
+          <button class="btn" id="topologyBtn">拓扑分析</button>
+          <a class="btn" id="spectralBtn" href="/spectral_physics_diagnostics.html" target="_blank" rel="noopener">光谱诊断</a>
+          <a class="btn" href="/global_spectral_leaderboard.html" target="_blank" rel="noopener">全局排行</a>
+          <a class="btn" href="/missing_data_repair_center.html" target="_blank" rel="noopener">缺失补算</a>
+          <a class="btn" href="/batch_recompute_center.html" target="_blank" rel="noopener">任务中心</a>
+          <a class="btn" href="/resource_file_browser.html" target="_blank" rel="noopener">资源浏览</a>
+          <button class="btn primary" id="refreshBtn">重新扫描</button>
+          <button class="btn" id="compactBtn" type="button" aria-pressed="false">紧凑</button>
+        </nav>
+      </div>
+    </header>
+
+    <aside>
+      <div class="search-panel">
+        <div class="sidebar-heading">
+          <strong>结构数据库</strong>
+          <span>按对称类别 / 母结构 / 扰动 / run 浏览</span>
+        </div>
+        <input id="searchInput" placeholder="搜索：C4、双圆盘、半径差、run_full...">
+      </div>
+      <div class="stats">
+        <div class="stat" data-stat="runs" role="button" tabindex="0"><b id="runCount">0</b><span>有效 run</span></div>
+        <div class="stat" data-stat="spectra" role="button" tabindex="0"><b id="pointCount">0</b><span>谱图</span></div>
+        <div class="stat" data-stat="bad" role="button" tabindex="0"><b id="okCount">0</b><span>不收敛</span></div>
+      </div>
+      <div class="run-list" id="runList"></div>
+    </aside>
+
+    <main id="main">
+      <div class="empty">正在扫描结果目录...</div>
+    </main>
+  </div>
+
+
+  <div class="runner-drawer" id="runnerDrawer">
+    <div class="runner-head">
+      <strong id="runnerTitle">运行脚本</strong>
+      <div class="runner-actions">
+        <button class="mini-btn primary-mini" id="runnerStart">启动</button>
+        <button class="mini-btn" id="runnerStartMissing">启动缺结果</button>
+        <button class="mini-btn danger-btn" id="runnerStop">强制停止</button>
+        <span class="pill" id="runnerStatus">idle</span>
+        <button class="mini-btn" id="runnerClose">收起</button>
+      </div>
+    </div>
+    <div class="runner-body">
+      <div class="runner-form" id="runnerForm"></div>
+      <section class="runner-output-panel" aria-label="实时 Python 输出">
+        <div class="runner-output-head">
+          <strong>实时 Python 输出</strong>
+          <span id="runnerOutputMeta">等待启动</span>
+          <span class="runner-output-tools">
+            <button class="mini-btn" id="runnerLogExpand" type="button">展开输出</button>
+            <button class="mini-btn" id="runnerLogAuto" type="button" aria-pressed="true">自动滚动</button>
+            <button class="mini-btn" id="runnerLogClear" type="button">清空显示</button>
+          </span>
+        </div>
+        <div class="runner-log" id="runnerLog">等待启动...</div>
+      </section>
+    </div>
+  </div>
+
+  <div class="cmd-backdrop" id="cmdBackdrop"></div>
+  <section class="cmd-window" id="cmdWindow" aria-label="仿真实时终端">
+    <div class="cmd-titlebar">
+      <strong id="cmdTitle">FDTD realtime console</strong>
+      <div class="cmd-controls">
+        <button class="cmd-btn" id="cmdMinimize">缩小</button>
+        <button class="cmd-btn" id="cmdClose">关闭</button>
+      </div>
+    </div>
+    <div class="cmd-dashboard">
+      <div class="cmd-stats">
+        <div class="cmd-stat"><b id="cmdProgressText">0%</b><span>总体进度</span></div>
+        <div class="cmd-stat"><b id="cmdStepText">0/0</b><span>当前脚本</span></div>
+        <div class="cmd-stat"><b id="cmdPidText">-</b><span>PID / job</span></div>
+        <div class="cmd-stat"><b id="cmdLineText">0</b><span>输出行数</span></div>
+        <div class="cmd-stat" style="grid-column:1 / -1"><b id="cmdCurrentText">等待启动</b><span id="cmdDetailText">实时显示 Python print/stdout/stderr 与最新谱图</span></div>
+      </div>
+      <div class="cmd-spectrum" id="cmdSpectrum">
+        <div class="cmd-spectrum-title">latest transmission spectrum</div>
+        <svg viewBox="0 0 420 126" role="img" aria-label="latest transmission spectrum">
+          <text x="18" y="66" fill="#64748b" font-size="12">等待第一个 xlsx 结果...</text>
+        </svg>
+        <div class="cmd-spectrum-meta">完成一个样本后自动读取最新 Excel 并绘制</div>
+      </div>
+    </div>
+    <div class="cmd-log" id="cmdLog"></div>
+  </section>
+  <button class="cmd-mini" id="cmdMini" type="button">
+    <b id="cmdMiniTitle">FDTD console</b>
+    <span id="cmdMiniText">点击展开实时终端</span>
+    <span class="cmd-mini-bar"><i id="cmdMiniBar"></i></span>
+  </button>
+
+  <div class="modal-overlay" id="topologyModal" aria-hidden="true">
+    <section class="topology-modal" role="dialog" aria-modal="true" aria-labelledby="topologyModalTitle">
+      <div class="topology-modal-head">
+        <div>
+          <h2 id="topologyModalTitle">选择拓扑相变分析对象</h2>
+          <div class="path">按结构层级选择一个已有最新结果的扰动，进入模板式热图/模式接力分析页。</div>
+        </div>
+        <button class="mini-btn" id="topologyClose">关闭</button>
+      </div>
+      <div class="topology-modal-tools">
+        <input id="topologySearch" placeholder="搜索：C3、三裂缝环、角度、半径差...">
+        <span class="pill" id="topologyCount">0 个可分析扰动</span>
+      </div>
+      <div class="topology-modal-body" id="topologyModalBody"></div>
+    </section>
+  </div>
+
+  <button class="note-fab" id="noteFab">笔记</button>
+  <section class="note-panel" id="notePanel" aria-label="仿真笔记">
+    <div class="note-head">
+      <strong>仿真笔记</strong>
+      <button class="mini-btn" id="noteClose">收起</button>
+    </div>
+    <textarea id="noteText" placeholder="记录：为什么重跑、哪一个扰动可疑、下一步要加密的参数区间..."></textarea>
+    <div class="note-foot">
+      <span id="noteSaved">自动保存到本机浏览器</span>
+      <button class="mini-btn" id="noteClear">清空</button>
+    </div>
+  </section>
+  <script src="assets/bzf.js"></script>
+
+
+  <script>
+    const state = {
+      data: null,
+      runs: [],
+      filtered: [],
+      selectedRun: null,
+      selectedItem: null,
+      view: 'dashboard',
+      dashboardFocus: 'overview',
+      tab: 'image',
+      expandedPaths: new Set(),
+      statusExpandedCategories: new Set(),
+      statusExpandedMothers: new Set(),
+      selectedCompareIds: new Set(),
+      imageAutoplay: false,
+      imagePlaybackMs: 1800,
+      runner: { kind: '', id: '', title: '', params: null, scripts: [], form: {}, jobId: '', timer: null, step: 1, logCursor: 0, logLines: [], latestJob: null, logExpanded: false, logAutoScroll: true },
+      runnerDrafts: {},
+      scanRefreshTimer: null,
+      cacheTime: 0
+    };
+    let imagePlaybackTimer = null;
+    try {
+      localStorage.removeItem('fdtd_runner_cache_v3');
+      localStorage.removeItem('fdtd_runner_cache_v2');
+    } catch (err) {}
+
+    const $ = (id) => document.getElementById(id);
+    const PLOTLY_CONFIG = {
+      responsive: true,
+      displaylogo: false,
+      modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+    };
+    const fmt = (v, digits = 4) => {
+      if (v === undefined || v === null || v === '') return '-';
+      const n = Number(v);
+      return Number.isFinite(n) ? n.toFixed(digits).replace(/\.?0+$/, '') : String(v);
+    };
+    const RUN_TAGS = ['值得复跑', '可用于报告', '疑似不收敛', '需要加密扫描', '无价值'];
+    const METRIC_KEYS = {
+      peak: ['peak_wavelength_nm', 'resonance_wavelength_nm', 'resonance_lambda_nm', 'lambda_peak_nm', 'min_wavelength_nm', 'max_wavelength_nm'],
+      fwhm: ['fwhm_nm', 'FWHM_nm', 'fwhm', 'linewidth_nm', 'line_width_nm'],
+      q: ['Q', 'q_factor', 'q', 'quality_factor'],
+      peaks: ['num_peaks', 'peak_count', 'peaks', 'n_peaks'],
+      eta: ['eta_nm', 'ETA_NM', 'deltaL_nm', 'delta_l_nm', 'delta_nm', 'value_nm']
+    };
+
+    function firstValue(source, keys) {
+      if (!source) return '';
+      const lower = {};
+      Object.entries(source).forEach(([key, value]) => { lower[String(key).toLowerCase()] = value; });
+      for (const key of keys) {
+        if (source[key] !== undefined && source[key] !== null && source[key] !== '') return source[key];
+        const value = lower[String(key).toLowerCase()];
+        if (value !== undefined && value !== null && value !== '') return value;
+      }
+      return '';
+    }
+
+    function itemMetric(item, keys) {
+      const direct = firstValue(item, keys);
+      if (direct !== '') return direct;
+      return firstValue(item?.params || {}, keys);
+    }
+
+    function numericMetric(item, keys) {
+      const value = itemMetric(item, keys);
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function scanParamValue(item) {
+      const value = itemMetric(item, METRIC_KEYS.eta);
+      if (value !== '') return value;
+      return item?.value_nm ?? '';
+    }
+
+    function scanParamNumber(item) {
+      const n = Number(scanParamValue(item));
+      if (Number.isFinite(n)) return n;
+      const index = Number(item?.index);
+      return Number.isFinite(index) ? index : null;
+    }
+
+    function isBaselineItem(item) {
+      const n = scanParamNumber(item);
+      if (n !== null && Math.abs(n) < 1e-9) return true;
+      return /(^|[_-])(eta|delta|deltal|value)[_-]?0+(\.0+)?/i.test(String(item?.name || ''));
+    }
+
+    function hasUsefulSpectrum(item) {
+      return Boolean(item?.xlsx_id || item?.png_id);
+    }
+
+    function applyCompactMode(enabled) {
+      document.body.classList.toggle('compact-mode', Boolean(enabled));
+      const btn = $('compactBtn');
+      if (btn) {
+        btn.classList.toggle('mode-active', Boolean(enabled));
+        btn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        btn.textContent = enabled ? '舒适' : '紧凑';
+      }
+      localStorage.setItem('fdtd_compact_mode', enabled ? '1' : '0');
+    }
+
+    function toggleCompactMode() {
+      applyCompactMode(!document.body.classList.contains('compact-mode'));
+    }
+
+    function setActiveNav(name) {
+      const map = {
+        dashboard: 'dashboardBtn',
+        run: 'dashboardBtn',
+        controller: 'controllerBtn',
+        manager: 'managerBtn',
+        topology: 'topologyBtn'
+      };
+      Object.entries(map).forEach(([key, id]) => {
+        const btn = $(id);
+        if (!btn) return;
+        btn.classList.toggle('nav-active', key === name);
+      });
+    }
+
+    function fileUrl(id) {
+      return `/api/file?id=${encodeURIComponent(id)}`;
+    }
+
+    async function scan(force = false, cacheOnly = false) {
+      stopImageAutoplay();
+      clearTimeout(state.scanRefreshTimer);
+      const loadingText = force ? '\u6b63\u5728\u91cd\u65b0\u5b8c\u6574\u626b\u63cf\u7ed3\u679c\u76ee\u5f55...' : '\u6b63\u5728\u8bfb\u53d6\u4e0a\u6b21\u626b\u63cf\u7f13\u5b58...';
+      if (force || !state.runs.length) $('main').innerHTML = `<div class="empty">${loadingText}</div>`;
+      const params = new URLSearchParams();
+      if (force) params.set('refresh', '1');
+      if (cacheOnly) params.set('cache_only', '1');
+      const res = await fetch(`/api/scan${params.toString() ? `?${params}` : ''}`);
+      state.data = await res.json();
+      if (state.data.empty_cache && cacheOnly && !force) {
+        await scan(true, false);
+        return;
+      }
+      state.runs = state.data.runs || [];
+      state.cacheTime = state.data.cache_time || state.cacheTime || 0;
+      $('rootPath').textContent = `${state.data.root || ''}${state.data.cached ? ' · \u5df2\u8f7d\u5165\u7f13\u5b58\uff0c\u540e\u53f0\u5237\u65b0\u4e2d' : ''}`;
+      applyFilter();
+      renderDashboard();
+      if (!state.runner.jobId) restoreLatestJob().catch(console.warn);
+      if (state.data.cached && state.data.refreshing) pollScanRefresh();
+    }
+
+    async function pollScanRefresh() {
+      clearTimeout(state.scanRefreshTimer);
+      try {
+        const res = await fetch('/api/scan-status');
+        const status = await res.json();
+        if (status.refreshing) {
+          $('rootPath').textContent = `${state.data?.root || ''} · \u5df2\u8f7d\u5165\u7f13\u5b58\uff0c\u540e\u53f0\u5237\u65b0\u4e2d`;
+          state.scanRefreshTimer = setTimeout(pollScanRefresh, 1200);
+          return;
+        }
+        if (status.has_cache && status.cache_time && status.cache_time !== state.cacheTime) {
+          await scan(false, true);
+          $('rootPath').textContent = `${state.data?.root || ''} · \u7f13\u5b58\u5df2\u66f4\u65b0`;
+        } else if (state.data?.cached) {
+          $('rootPath').textContent = `${state.data?.root || ''} · \u5df2\u4f7f\u7528\u7f13\u5b58`;
+        }
+      } catch (err) {
+        console.warn(err);
+      }
+    }
+
+    function applyFilter() {
+      const q = $('searchInput').value.trim().toLowerCase();
+      state.filtered = state.runs.filter(run => {
+        const text = [
+          run.name,
+          run.relative_path,
+          run.group,
+          run.perturbation,
+          run.error || ''
+        ].join(' ').toLowerCase();
+        return !q || text.includes(q);
+      });
+      renderSidebar();
+    }
+
+    function renderSidebar() {
+      $('runCount').textContent = state.filtered.length;
+      $('pointCount').textContent = state.filtered.reduce((s, r) => s + (r.count || 0), 0);
+      $('okCount').textContent = state.filtered.reduce((s, r) => s + countBadItems(r), 0);
+      document.querySelectorAll('[data-stat]').forEach(card => {
+        card.classList.toggle('active', state.view === 'dashboard' && state.dashboardFocus === card.dataset.stat);
+      });
+
+      const tree = buildTree(state.filtered);
+      const q = $('searchInput').value.trim();
+      if (q) expandFilteredPaths(state.filtered);
+
+      const html = renderTree(tree.children, 0);
+      $('runList').innerHTML = html ? `<div class="tree">${html}</div>` : '<div class="empty">没有找到包含结果内容的 run</div>';
+      document.querySelectorAll('[data-run]').forEach(btn => {
+        btn.addEventListener('click', () => selectRun(btn.dataset.run));
+      });
+      document.querySelectorAll('[data-tree-path]').forEach(btn => {
+        btn.addEventListener('click', () => toggleTreePath(btn.dataset.treePath));
+      });
+      bindOpenFolderButtons();
+      if (state.view === 'dashboard') renderDashboard();
+    }
+
+    function buildTree(runs) {
+      const root = { name: 'root', path: '', children: new Map(), runs: [], count: 0 };
+      for (const run of runs) {
+        const parts = run.relative_path.split(/[\\/]+/).filter(Boolean);
+        let node = root;
+        for (const part of parts.slice(0, -1)) {
+          const path = node.path ? `${node.path}/${part}` : part;
+          if (!node.children.has(part)) {
+            node.children.set(part, { name: part, path, children: new Map(), runs: [], count: 0 });
+          }
+          node = node.children.get(part);
+        }
+        node.runs.push(run);
+      }
+      fillCounts(root);
+      return root;
+    }
+
+    function fillCounts(node) {
+      let count = node.runs.reduce((sum, run) => sum + (run.count || 0), 0);
+      for (const child of node.children.values()) count += fillCounts(child);
+      node.count = count;
+      return count;
+    }
+
+    function renderTree(children, depth) {
+      return [...children.values()]
+        .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN', { numeric: true }))
+        .map(node => {
+          const expanded = state.expandedPaths.has(node.path);
+          const childHtml = expanded ? renderTree(node.children, depth + 1) : '';
+          const runHtml = expanded ? node.runs
+            .sort((a, b) => b.modified - a.modified || a.name.localeCompare(b.name, 'zh-CN', { numeric: true }))
+            .map(run => renderRunLeaf(run, depth + 1))
+            .join('') : '';
+          return `
+            <button class="tree-row tree-node" style="--indent:${8 + depth * 18}px" data-tree-path="${escapeHtml(node.path)}" title="${escapeHtml(node.path)}">
+              <span class="tree-toggle">${expanded ? 'v' : '>'}</span>
+              <span class="tree-name">${escapeHtml(node.name)}</span>
+              <span class="tree-count">${node.count}</span>
+            </button>
+            ${childHtml}
+            ${runHtml}
+          `;
+        }).join('');
+    }
+
+    function renderRunLeaf(run, depth) {
+      const active = state.view === 'run' && state.selectedRun?.id === run.id;
+      const label = `${run.count || 0} 图`;
+      const bad = run.items?.some(i => i.unconverged);
+      const mode = run.name?.startsWith('run_full') ? 'full' : run.name?.startsWith('run_test') ? 'test' : run.name?.startsWith('run_preview') ? 'preview' : 'run';
+      return `
+        <button class="tree-row tree-run ${active ? 'active' : ''} ${bad ? 'has-risk' : ''}" style="--indent:${8 + depth * 18}px" data-run="${run.id}" title="${escapeHtml(run.relative_path)}">
+          <span class="tree-status ${bad ? 'bad' : 'ok'}"></span>
+          <span class="tree-name ${bad ? 'metric-bad' : ''}">${escapeHtml(simpleRunName(run))}</span>
+          <span class="tree-count">${label}</span>
+          <span class="tree-run-meta"><b>${escapeHtml(mode)}</b> · ${escapeHtml(run.perturbation || '未标注扰动')}${run.error ? ` · ${escapeHtml(run.error)}` : ''}</span>
+        </button>
+        ${run.reduction_path ? `<div class="reduction-badge" style="--indent:${30 + depth * 18}px">降群路径：${escapeHtml(run.reduction_path)}</div>` : ''}
+        <div class="tree-leaf-actions" style="--indent:${30 + depth * 18}px">
+          <button class="mini-btn icon-like" data-open-folder="${run.id}">文件夹</button>
+          <a class="mini-btn icon-like" href="/topology_transition_analysis.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">拓扑</a>
+          <a class="mini-btn icon-like" href="/spectral_physics_diagnostics.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">光谱诊断</a>
+          <a class="mini-btn icon-like" href="/resource_file_browser.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">资源</a>
+        </div>
+      `;
+    }
+
+    function toggleTreePath(path) {
+      if (state.expandedPaths.has(path)) state.expandedPaths.delete(path);
+      else state.expandedPaths.add(path);
+      renderSidebar();
+    }
+
+    function expandFilteredPaths(runs) {
+      for (const run of runs) {
+        const parts = run.relative_path.split(/[\\/]+/).filter(Boolean);
+        let path = '';
+        for (const part of parts.slice(0, -1)) {
+          path = path ? `${path}/${part}` : part;
+          state.expandedPaths.add(path);
+        }
+      }
+    }
+
+    function expandRunPath(run) {
+      const parts = run.relative_path.split(/[\\/]+/).filter(Boolean);
+      let path = '';
+      for (const part of parts.slice(0, -1)) {
+        path = path ? `${path}/${part}` : part;
+        state.expandedPaths.add(path);
+      }
+    }
+
+    function selectRun(id) {
+      state.selectedRun = state.runs.find(r => r.id === id);
+      state.selectedItem = imageItems(state.selectedRun)[0] || state.selectedRun?.items?.[0] || null;
+      state.selectedCompareIds = new Set();
+      state.view = 'run';
+      state.tab = 'image';
+      if (state.selectedRun) {
+        expandRunPath(state.selectedRun);
+        markViewed(state.selectedRun.id);
+        state.selectedRun.viewed = true;
+      }
+      setActiveNav('run');
+      renderSidebar();
+      renderMain();
+    }
+
+    function selectItem(uid) {
+      state.selectedItem = state.selectedRun.items.find(i => String(i.uid) === String(uid));
+      renderMain();
+    }
+
+    function toggleCompare(uid, checked) {
+      if (checked) state.selectedCompareIds.add(uid);
+      else state.selectedCompareIds.delete(uid);
+      if (state.tab === 'compare') renderMain();
+    }
+
+    function setTab(tab) {
+      if (tab !== 'image') stopImageAutoplay();
+      state.tab = tab;
+      renderMain();
+    }
+
+    function showDashboard(focus = 'overview') {
+      stopImageAutoplay();
+      state.view = 'dashboard';
+      state.dashboardFocus = focus;
+      state.selectedRun = null;
+      state.selectedItem = null;
+      setActiveNav('dashboard');
+      renderSidebar();
+      renderDashboard();
+    }
+
+    function renderDashboard() {
+      if (!state.data) return;
+      if (!state.data.exists) return renderEmpty();
+
+      const statuses = state.data.perturbation_status || [];
+      const runs = latestDashboardRuns(statuses);
+      const allItems = runs.flatMap(run => (run.items || []).map(item => ({ run, item })));
+      const badItems = allItems.filter(({ item }) => item.unconverged);
+      const badRuns = runs.filter(run => countBadItems(run) > 0);
+      const convergenceRate = allItems.length ? Math.round((1 - badItems.length / allItems.length) * 100) : 0;
+      const groupedRuns = [...badRuns].filter(run => countBadItems(run) >= 3).sort((a, b) => countBadItems(b) - countBadItems(a));
+      const looseBadItems = badItems.filter(({ run }) => countBadItems(run) < 3).slice(0, 12);
+      const readyStatuses = statuses.filter(s => s.has_latest_run).length;
+      const missingStatuses = statuses.length - readyStatuses;
+      const archiveSummary = state.data.archive_summary || {};
+
+      $('main').innerHTML = `
+        <div class="dashboard">
+          <section class="dashboard-hero">
+            <div>
+              <h2>总览</h2>
+              <div class="path">先看状态，再进入具体结构。绿色表示该扰动已有最新 run_full 结果；红色表示还没有可用的最新结果。</div>
+            </div>
+          </section>
+
+          <section class="dashboard-grid">
+            <div class="summary-card"><b>${runs.length}</b><span>有效 run</span></div>
+            <div class="summary-card"><b>${allItems.length}</b><span>谱线总数</span></div>
+            <div class="summary-card bad"><b>${badItems.length}</b><span>不收敛谱线 max(T)&gt;1</span></div>
+            <div class="summary-card"><b>${readyStatuses}/${statuses.length}</b><span>\u5f53\u524d results \u4e0b\u6700\u65b0 run_full \u8986\u76d6</span></div>
+            <div class="summary-card"><b>${archiveSummary.archive_runs || 0}</b><span>\u65e7\u6587\u4ef6\u5f52\u6863 run\uff1b\u6587\u4ef6 ${archiveSummary.archive_files || 0}</span></div>
+          </section>
+
+          ${renderDashboardInsights(runs, statuses, allItems, badItems, convergenceRate)}
+
+          ${renderDashboardWorkbench(runs, statuses)}
+
+          ${renderDashboardFocusPanel(runs, allItems, badItems, statuses)}
+
+          <section class="panel">
+            <div class="panel-title">
+              <span>\u6bcd\u7ed3\u6784 / \u6270\u52a8\u6587\u4ef6\u5939\u72b6\u6001\uff08\u4ec5\u5f53\u524d results \u6700\u65b0 run_full\uff09</span>
+              <span class="pill">绿色 ${readyStatuses} · 红色 ${missingStatuses}</span>
+            </div>
+            ${renderPerturbationStatusTable(statuses)}
+          </section>
+
+          <section class="dashboard-panels">
+            <div class="panel">
+              <div class="panel-title">
+                <span>不收敛聚合</span>
+                <span class="pill">${groupedRuns.length} 组</span>
+              </div>
+              ${groupedRuns.length ? renderRiskGroups(groupedRuns) : '<div class="plain-list"><div class="plain-row"><strong>没有超过 3 条不收敛的 run</strong><span>零散异常会列在右侧。</span></div></div>'}
+            </div>
+
+            <div class="panel">
+              <div class="panel-title">
+                <span>零散异常</span>
+                <span class="pill">${looseBadItems.length}</span>
+              </div>
+              ${looseBadItems.length ? renderBadTable(looseBadItems) : '<div class="plain-list"><div class="plain-row"><strong>暂无零散异常</strong><span>重点看左侧聚合风险。</span></div></div>'}
+            </div>
+          </section>
+        </div>
+      `;
+
+      bindStatusCategoryToggles();
+      bindOpenFolderButtons();
+      bindRunButtonsInMain();
+      bindDeleteButtons();
+      bindStartButtons();
+    }
+
+    function latestDashboardRuns(statuses) {
+      const filteredIds = new Set(state.filtered.map(run => String(run.id)));
+      const seen = new Set();
+      const runs = [];
+      for (const status of statuses) {
+        const run = statusRun(status);
+        if (!run) continue;
+        const id = String(run.id);
+        if (seen.has(id)) continue;
+        if (filteredIds.size && !filteredIds.has(id)) continue;
+        if (!String(run.name || '').startsWith('run_full')) continue;
+        if (isArchivedRun(run)) continue;
+        seen.add(id);
+        runs.push(run);
+      }
+      return runs.sort((a, b) => b.modified - a.modified);
+    }
+
+    function isArchivedRun(run) {
+      const path = String(run?.relative_path || '');
+      return path.includes('/\u65e7\u6587\u4ef6/') || path.includes('\\\u65e7\u6587\u4ef6\\') || path.includes('/\u4e0d\u6536\u655b\u7ed3\u679c/') || path.includes('\\\u4e0d\u6536\u655b\u7ed3\u679c\\');
+    }
+
+    function highValueRuns(runs) {
+      return [...runs]
+        .map(run => {
+          const items = run.items || [];
+          const bad = countBadItems(run);
+          const minValues = items.map(item => Number(item.min_abs2)).filter(Number.isFinite);
+          const maxValues = items.map(item => Number(item.max_abs2)).filter(Number.isFinite);
+          const fwhmValues = items.map(item => numericMetric(item, METRIC_KEYS.fwhm)).filter(Number.isFinite);
+          const qValues = items.map(item => numericMetric(item, METRIC_KEYS.q)).filter(Number.isFinite);
+          const complete = items.filter(item => item.xlsx_id && item.png_id).length;
+          const bestMin = minValues.length ? Math.min(...minValues) : null;
+          const worstMax = maxValues.length ? Math.max(...maxValues) : null;
+          const bestFwhm = fwhmValues.length ? Math.min(...fwhmValues) : null;
+          const bestQ = qValues.length ? Math.max(...qValues) : null;
+          const completeRate = items.length ? complete / items.length : 0;
+          const score =
+            (bad === 0 ? 45 : Math.max(0, 28 - bad * 6)) +
+            Math.min(18, items.length * 1.2) +
+            completeRate * 18 +
+            (Number.isFinite(bestMin) ? Math.max(0, 12 - bestMin * 12) : 0) +
+            (Number.isFinite(bestFwhm) ? Math.max(0, 14 - bestFwhm / 10) : 0) +
+            (Number.isFinite(bestQ) ? Math.min(18, Math.log10(Math.max(1, bestQ)) * 7) : 0) -
+            (Number.isFinite(worstMax) && worstMax > 1 ? 28 : 0);
+          return { run, bad, bestMin, worstMax, bestFwhm, bestQ, complete, score };
+        })
+        .filter(item => item.run.count > 0 && item.bad <= Math.max(1, Math.ceil((item.run.count || 0) * 0.12)))
+        .sort((a, b) => b.score - a.score || (b.bestQ ?? 0) - (a.bestQ ?? 0) || (a.bestFwhm ?? 999) - (b.bestFwhm ?? 999))
+        .slice(0, 6);
+    }
+
+    function riskReminderRows(runs) {
+      const rows = [];
+      for (const run of runs) {
+        const items = run.items || [];
+        const bad = countBadItems(run);
+        const missingPng = items.filter(item => !item.png_id).length;
+        const missingXlsx = items.filter(item => !item.xlsx_id).length;
+        const maxT = Math.max(...items.map(item => Number(item.max_abs2)).filter(Number.isFinite), 0);
+        if (maxT > 1) rows.push({ run, level: 'bad', reason: `max(T)>1，最高 ${fmt(maxT, 5)}` });
+        if (!run.has_manifest) rows.push({ run, level: 'warn', reason: 'manifest.csv 缺失' });
+        if (!run.has_scan_plan) rows.push({ run, level: 'warn', reason: 'scan_points.csv 缺失' });
+        if (missingPng || missingXlsx) rows.push({ run, level: 'warn', reason: `PNG 缺 ${missingPng}，XLSX 缺 ${missingXlsx}` });
+        if ((run.count || 0) < 3) rows.push({ run, level: 'warn', reason: `扫描点数量偏少：${run.count || 0}` });
+        if (String(run.error || '').trim()) rows.push({ run, level: 'bad', reason: `最近运行失败：${run.error}` });
+        if (bad >= Math.max(3, Math.ceil((run.count || 0) * 0.3))) rows.push({ run, level: 'bad', reason: `不收敛点过多：${bad}/${run.count || 0}` });
+      }
+      return rows.sort((a, b) => (a.level === 'bad' ? -1 : 1) - (b.level === 'bad' ? -1 : 1)).slice(0, 10);
+    }
+
+    function renderDashboardWorkbench(runs, statuses) {
+      const valueRuns = highValueRuns(runs);
+      const risks = riskReminderRows(runs);
+      const recentRuns = [...runs].sort((a, b) => Number(b.modified || 0) - Number(a.modified || 0)).slice(0, 8);
+      const recentViewed = [...runs].filter(run => run.viewed).sort((a, b) => Number(b.viewed_at || 0) - Number(a.viewed_at || 0) || Number(b.modified || 0) - Number(a.modified || 0)).slice(0, 8);
+      return `
+        <section class="dashboard-panels">
+          <div class="panel">
+            <div class="panel-title"><span>高价值候选</span><span class="pill">${valueRuns.length}</span></div>
+            ${valueRuns.length ? `
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>run</th><th>min(T)</th><th>FWHM</th><th>Q</th><th>完整谱线</th><th>操作</th></tr></thead>
+                  <tbody>
+                    ${valueRuns.map(row => `
+                      <tr>
+                        <td>${escapeHtml(compactRunLabel(row.run))}</td>
+                        <td>${row.bestMin === null ? '未记录' : fmt(row.bestMin, 6)}</td>
+                        <td>${row.bestFwhm === null ? '未记录' : fmt(row.bestFwhm, 4)}</td>
+                        <td>${row.bestQ === null ? '未记录' : fmt(row.bestQ, 2)}</td>
+                        <td>${row.complete}/${row.run.count || 0}</td>
+                        <td><button class="mini-btn" data-run="${row.run.id}">查看</button><a class="mini-btn" href="/spectral_physics_diagnostics.html?run_id=${encodeURIComponent(row.run.id)}" target="_blank" rel="noopener">光谱诊断</a></td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>` : '<div class="empty">暂无稳定的高价值候选。优先补齐谱线与收敛性。</div>'}
+          </div>
+          <div class="panel">
+            <div class="panel-title"><span>风险提醒</span><span class="pill">${risks.length}</span></div>
+            ${risks.length ? `
+              <div class="plain-list">
+                ${risks.map(row => `
+                  <div class="plain-row ${row.level === 'bad' ? 'unconverged' : ''}">
+                    <strong>${escapeHtml(compactRunLabel(row.run))}</strong>
+                    <span>${escapeHtml(row.reason)}</span>
+                    <button class="mini-btn" data-run="${row.run.id}">查看</button>
+                    <a class="mini-btn" href="/spectral_physics_diagnostics.html?run_id=${encodeURIComponent(row.run.id)}" target="_blank" rel="noopener">光谱诊断</a>
+                  </div>
+                `).join('')}
+              </div>` : '<div class="empty">当前筛选下没有明显风险提醒。</div>'}
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-title"><span>最近运行 / 最近查看</span><span class="pill">${recentRuns.length} / ${recentViewed.length}</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>类型</th><th>结构 / 扰动</th><th>模式</th><th>谱线</th><th>不收敛</th><th>已查看</th><th>操作</th></tr></thead>
+              <tbody>
+                ${[
+                  ...recentRuns.map(run => ({ kind: '最近运行', run })),
+                  ...recentViewed.map(run => ({ kind: '最近查看', run }))
+                ].map(({ kind, run }) => `
+                  <tr class="${countBadItems(run) ? 'unconverged' : ''}">
+                    <td>${kind}</td>
+                    <td>${escapeHtml(compactRunLabel(run))}<br><span class="param-line">${escapeHtml(run.relative_path)}</span></td>
+                    <td>${escapeHtml(run.name || 'run')}</td>
+                    <td>${run.count || 0}</td>
+                    <td>${renderBadCount(countBadItems(run))}</td>
+                    <td>${run.viewed ? '是' : '否'}</td>
+                    <td><button class="mini-btn" data-run="${run.id}">查看</button><button class="mini-btn" data-open-folder="${run.id}">打开</button><a class="mini-btn" href="/spectral_physics_diagnostics.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">光谱诊断</a></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      `;
+    }
+
+    function renderDashboardInsights(runs, statuses, allItems, badItems, convergenceRate) {
+      const categories = new Set(statuses.map(statusCategory));
+      const mothers = new Set(statuses.map(s => `${statusCategory(s)} / ${s.mother || s.structure || '未标注母结构'}`));
+      const readyMothers = new Set(statuses.filter(s => s.has_latest_run).map(s => `${statusCategory(s)} / ${s.mother || s.structure || '未标注母结构'}`));
+      const badRate = allItems.length ? Math.round((badItems.length / allItems.length) * 100) : 0;
+      const riskyMothers = [...groupStatusesByCategory(statuses)]
+        .flatMap(group => groupStatusesByMother(group.items).map(mother => ({
+          label: `${group.category} / ${mother.mother}`,
+          metrics: statusGroupMetrics(mother.items)
+        })))
+        .sort((a, b) => b.metrics.bad - a.metrics.bad || (b.metrics.worstMaxT || 0) - (a.metrics.worstMaxT || 0));
+      const topRisk = riskyMothers.find(item => item.metrics.bad > 0);
+      const newest = [...runs].sort((a, b) => b.modified - a.modified)[0];
+      const valueRuns = highValueRuns(runs);
+      return `
+        <section class="panel">
+          <div class="panel-title"><span>总览指标</span><span class="pill">${categories.size} 个大类 / ${mothers.size} 个母结构</span></div>
+          <div class="insight-grid">
+            <div class="insight-card">
+              <strong>${convergenceRate}%</strong>
+              <span>当前筛选下的谱线收敛比例；不收敛率 ${badRate}%。</span>
+            </div>
+            <div class="insight-card">
+              <strong>${readyMothers.size}/${mothers.size}</strong>
+              <span>已有最新结果的母结构覆盖数量。</span>
+            </div>
+            <div class="insight-card">
+              <strong>${topRisk ? escapeHtml(topRisk.label) : '暂无高风险'}</strong>
+              <span>${topRisk ? `${topRisk.metrics.bad} 条不收敛，最大 maxT ${fmt(topRisk.metrics.worstMaxT, 4)}` : '当前没有检测到 max(T)>1 的风险母结构。'}</span>
+            </div>
+            <div class="insight-card">
+              <strong>${valueRuns[0] ? escapeHtml(compactRunLabel(valueRuns[0].run)) : (newest ? escapeHtml(compactRunLabel(newest)) : '-')}</strong>
+              <span>${valueRuns.length ? `\u9ad8\u4ef7\u503c\u5019\u9009\uff1a${valueRuns.length} \u4e2a\uff1b\u4f18\u5148\u770b\u4f4e\u4e0d\u6536\u655b\u3001\u8c31\u7ebf\u5b8c\u6574\u3001min(T) \u66f4\u4f4e\u7684\u7ed3\u6784\u3002` : '\u6682\u672a\u627e\u5230\u7a33\u5b9a\u7684\u9ad8\u4ef7\u503c\u5019\u9009\uff0c\u5148\u5904\u7406\u4e0d\u6536\u655b\u9879\u3002'}</span>
+            </div>
+          </div>
+        </section>
+      `;
+    }
+
+    function renderDashboardFocusPanel(runs, allItems, badItems, statuses) {
+      const focus = state.dashboardFocus || 'overview';
+      if (focus === 'runs') {
+        const recentRuns = [...runs].sort((a, b) => b.modified - a.modified).slice(0, 14);
+        return `
+          <section class="panel focus-panel">
+            <div class="panel-title"><span>有效 run 快速入口</span><span class="pill">${recentRuns.length}/${runs.length}</span></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>结构 / 扰动</th><th>谱图</th><th>不收敛</th><th>操作</th></tr></thead>
+                <tbody>
+                  ${recentRuns.map(run => {
+                    const bad = countBadItems(run);
+                    return `
+                      <tr class="${bad ? 'unconverged' : ''}">
+                        <td>${escapeHtml(compactRunLabel(run))}<br><span class="param-line">${escapeHtml(run.reduction_path || run.relative_path)}</span></td>
+                        <td>${run.count || 0}</td>
+                        <td>${renderBadCount(bad)}</td>
+                        <td>
+                          <button class="mini-btn" data-run="${run.id}">查看</button>
+                          <button class="mini-btn" data-open-folder="${run.id}">打开文件夹</button>
+                          <a class="mini-btn" href="/spectral_physics_diagnostics.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">光谱诊断</a>
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        `;
+      }
+      if (focus === 'spectra') {
+        const groups = groupRunsByCategory(runs);
+        return `
+          <section class="panel focus-panel">
+            <div class="panel-title"><span>谱图数量分布</span><span class="pill">${allItems.length} 条谱线</span></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>大类</th><th>run</th><th>谱图</th><th>不收敛</th></tr></thead>
+                <tbody>
+                  ${groups.map(group => `
+                    <tr>
+                      <td>${escapeHtml(group.category)}</td>
+                      <td>${group.runs}</td>
+                      <td>${group.points}</td>
+                      <td>${renderBadCount(group.bad)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        `;
+      }
+      if (focus === 'bad') {
+        const riskyRuns = [...runs].filter(run => countBadItems(run) > 0).sort((a, b) => countBadItems(b) - countBadItems(a)).slice(0, 24);
+        const worstItems = [...badItems].sort((a, b) => Number(b.item.max_abs2 || 0) - Number(a.item.max_abs2 || 0)).slice(0, 12);
+        return `
+          <section class="panel focus-panel">
+            <div class="panel-title"><span>不收敛快速定位</span><span class="pill">${badItems.length} 条谱线</span></div>
+            ${riskyRuns.length ? renderRiskGroups(riskyRuns) : '<div class="plain-list"><div class="plain-row"><strong>当前筛选下没有不收敛谱线</strong><span>max(T) 均未超过 1。</span></div></div>'}
+            ${worstItems.length ? renderBadTable(worstItems) : ''}
+          </section>
+        `;
+      }
+      return '';
+    }
+
+    function renderPerturbationStatusTable(statuses) {
+      if (!statuses.length) {
+        return '<div class="plain-list"><div class="plain-row"><strong>没有发现 coding 扰动文件夹</strong><span>请检查母结构目录。</span></div></div>';
+      }
+      const groups = groupStatusesByCategory(statuses);
+      return `
+        <div class="status-table">
+          <table>
+            <thead>
+              <tr><th>状态</th><th>结构层级</th><th>最新结果</th><th>谱图</th><th>不收敛</th><th>最大 maxT</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              ${groups.map(group => renderStatusCategory(group)).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function renderStatusCategory(group) {
+      const expanded = state.statusExpandedCategories.has(group.category);
+      const metrics = statusGroupMetrics(group.items);
+      const mothers = groupStatusesByMother(group.items);
+      return `
+        <tr class="category-row" data-status-category="${escapeHtml(group.category)}">
+          <td class="status-main"><span class="category-toggle">${expanded ? '▾' : '▸'}</span>${progressDots(metrics.ready, metrics.total)} ${metrics.ready}/${metrics.total}</td>
+          <td><span class="category-name">${escapeHtml(group.category)}<span class="pill">${mothers.length} 个母结构</span><span class="pill">${metrics.total} 个扰动</span></span></td>
+          <td>${metrics.ready ? `${metrics.ready} 个已有结果` : '-'}</td>
+          <td>${metrics.spectra}</td>
+          <td>${renderBadCount(metrics.bad)}</td>
+          <td>${renderWorstMaxT(metrics.worstMaxT)}</td>
+          <td>点击${expanded ? '收起' : '展开'}</td>
+        </tr>
+        ${expanded ? mothers.map(mother => renderStatusMother(group.category, mother)).join('') : ''}
+      `;
+    }
+
+    function renderStatusMother(category, motherGroup) {
+      const key = statusMotherKey(category, motherGroup.mother);
+      const expanded = state.statusExpandedMothers.has(key);
+      const metrics = statusGroupMetrics(motherGroup.items);
+      return `
+        <tr class="mother-row" data-status-mother="${escapeHtml(key)}">
+          <td class="status-main"><span class="category-toggle">${expanded ? '▾' : '▸'}</span>${progressDots(metrics.ready, metrics.total)} ${metrics.ready}/${metrics.total}</td>
+          <td>
+            <div class="status-object">
+              <strong>${escapeHtml(motherGroup.mother)}</strong>
+              <span class="status-sub">${escapeHtml(category)} / ${metrics.total} 个扰动</span>
+            </div>
+          </td>
+          <td>${metrics.ready ? `${metrics.ready} 个已有结果` : '-'}</td>
+          <td>${metrics.spectra}</td>
+          <td>${renderBadCount(metrics.bad)}</td>
+          <td>${renderWorstMaxT(metrics.worstMaxT)}</td>
+          <td>点击${expanded ? '收起扰动' : '展开扰动'}</td>
+        </tr>
+        ${expanded ? motherGroup.items.map(renderStatusChildRow).join('') : ''}
+      `;
+    }
+
+    function renderStatusChildRow(s) {
+      const bad = statusBadCount(s);
+      const run = statusRun(s);
+      const spectra = run ? (run.count || 0) : 0;
+      const worst = statusWorstMaxT(s);
+      return `
+        <tr class="child-row ${bad ? 'unconverged' : ''}">
+          <td class="status-main"><span class="status-dot ${s.has_latest_run ? 'ok' : ''}"></span>${s.has_latest_run ? '已有结果' : '无最新结果'}</td>
+          <td>
+            <div class="status-object">
+              <strong>${escapeHtml(s.perturbation || '-')}</strong>
+              <span class="status-sub">${escapeHtml(s.mother || s.structure || '-')}</span>
+            </div>
+          </td>
+          <td>${s.has_latest_run ? `${s.latest_count} 文件` : '-'}</td>
+          <td>${spectra}</td>
+          <td>${renderBadCount(bad)}</td>
+          <td>${renderWorstMaxT(worst)}</td>
+          <td>
+            ${s.latest_run_id ? `<button class="mini-btn" data-run="${s.latest_run_id}">查看结果</button><button class="mini-btn" data-open-folder="${s.latest_run_id}">打开结果</button><a class="mini-btn" href="/topology_transition_analysis.html?run_id=${encodeURIComponent(s.latest_run_id)}" target="_blank" rel="noopener">拓扑热图</a><a class="mini-btn" href="/spectral_physics_diagnostics.html?run_id=${encodeURIComponent(s.latest_run_id)}" target="_blank" rel="noopener">光谱诊断</a>` : `<button class="mini-btn" data-open-folder="${s.id}">打开扰动</button>`}
+            ${s.script_id ? `<button class="mini-btn" data-start-script="${s.script_id}">启动脚本</button>` : ''}
+          </td>
+        </tr>
+      `;
+    }
+
+    function groupStatusesByCategory(statuses) {
+      const map = new Map();
+      for (const status of statuses) {
+        const category = statusCategory(status);
+        if (!map.has(category)) map.set(category, []);
+        map.get(category).push(status);
+      }
+      return [...map.entries()]
+        .map(([category, items]) => ({
+          category,
+          items: [...items].sort((a, b) => Number(a.has_latest_run) - Number(b.has_latest_run) || (a.mother || '').localeCompare(b.mother || '', 'zh-CN') || (a.perturbation || '').localeCompare(b.perturbation || '', 'zh-CN'))
+        }))
+        .sort((a, b) => a.category.localeCompare(b.category, 'zh-CN', { numeric: true }));
+    }
+
+    function groupStatusesByMother(statuses) {
+      const map = new Map();
+      for (const status of statuses) {
+        const mother = status.mother || status.structure || '未标注母结构';
+        if (!map.has(mother)) map.set(mother, []);
+        map.get(mother).push(status);
+      }
+      return [...map.entries()]
+        .map(([mother, items]) => ({
+          mother,
+          items: [...items].sort((a, b) => Number(a.has_latest_run) - Number(b.has_latest_run) || (a.perturbation || '').localeCompare(b.perturbation || '', 'zh-CN', { numeric: true }))
+        }))
+        .sort((a, b) => a.mother.localeCompare(b.mother, 'zh-CN', { numeric: true }));
+    }
+
+    function statusMotherKey(category, mother) {
+      return `${category}|||${mother}`;
+    }
+
+    function statusGroupMetrics(items) {
+      return items.reduce((acc, status) => {
+        const run = statusRun(status);
+        const worst = statusWorstMaxT(status);
+        acc.total += 1;
+        acc.ready += status.has_latest_run ? 1 : 0;
+        acc.spectra += run ? (run.count || 0) : 0;
+        acc.bad += run ? countBadItems(run) : 0;
+        if (Number.isFinite(worst)) acc.worstMaxT = Math.max(acc.worstMaxT ?? worst, worst);
+        return acc;
+      }, { total: 0, ready: 0, spectra: 0, bad: 0, worstMaxT: null });
+    }
+
+    function statusRun(status) {
+      return findRunById(status?.latest_run_id);
+    }
+
+    function statusWorstMaxT(status) {
+      const run = statusRun(status);
+      if (!run) return null;
+      const values = (run.items || []).map(item => Number(item.max_abs2)).filter(Number.isFinite);
+      return values.length ? Math.max(...values) : null;
+    }
+
+    function renderWorstMaxT(value) {
+      if (!Number.isFinite(value)) return '-';
+      return `<span class="${value > 1 ? 'metric-bad' : ''}">${fmt(value, 4)}</span>`;
+    }
+
+    function groupRunsByCategory(runs) {
+      const map = new Map();
+      for (const run of runs) {
+        const category = pathSegments(run)[0] || run.group || '未分类';
+        if (!map.has(category)) map.set(category, { category, runs: 0, points: 0, bad: 0 });
+        const item = map.get(category);
+        item.runs += 1;
+        item.points += run.count || 0;
+        item.bad += countBadItems(run);
+      }
+      return [...map.values()].sort((a, b) => b.points - a.points || a.category.localeCompare(b.category, 'zh-CN', { numeric: true }));
+    }
+
+    function statusCategory(status) {
+      if (status?.category) return status.category;
+      return String(status?.structure || '未分类').split('/')[0].trim() || '未分类';
+    }
+
+    function statusBadCount(status) {
+      const run = findRunById(status?.latest_run_id);
+      return run ? countBadItems(run) : 0;
+    }
+
+    function findRunById(id) {
+      return state.runs.find(run => String(run.id) === String(id));
+    }
+
+    function renderBadCount(count) {
+      const n = Number(count || 0);
+      return `<span class="${badCountClass(n)}">${n ? `${n} 条` : '0'}</span>`;
+    }
+
+    function badCountClass(count) {
+      if (count >= 9) return 'bad-count critical';
+      if (count >= 6) return 'bad-count high';
+      if (count >= 3) return 'bad-count mid';
+      if (count > 0) return 'bad-count low';
+      return 'bad-count';
+    }
+
+    function progressDots(ready, total) {
+      const dotCount = Math.max(4, Math.min(12, total || 4));
+      const okDots = total ? Math.round((ready / total) * dotCount) : 0;
+      return `<span class="progress-dots" title="已有结果 ${ready}/${total}">${Array.from({ length: dotCount }, (_, index) => `<span class="${index < okDots ? 'ok' : ''}"></span>`).join('')}</span>`;
+    }
+
+    function preserveMainScroll(action) {
+      const main = $('main');
+      const mainTop = main ? main.scrollTop : 0;
+      const statusTable = document.querySelector('.status-table');
+      const tableTop = statusTable ? statusTable.scrollTop : 0;
+      action();
+      requestAnimationFrame(() => {
+        if (main) main.scrollTop = mainTop;
+        const nextTable = document.querySelector('.status-table');
+        if (nextTable) nextTable.scrollTop = tableTop;
+      });
+    }
+
+    function bindStatusCategoryToggles() {
+      document.querySelectorAll('[data-status-category]').forEach(row => {
+        row.addEventListener('click', () => {
+          const category = row.dataset.statusCategory;
+          if (state.statusExpandedCategories.has(category)) state.statusExpandedCategories.delete(category);
+          else state.statusExpandedCategories.add(category);
+          preserveMainScroll(renderDashboard);
+        });
+      });
+      document.querySelectorAll('[data-status-mother]').forEach(row => {
+        row.addEventListener('click', () => {
+          const key = row.dataset.statusMother;
+          if (state.statusExpandedMothers.has(key)) state.statusExpandedMothers.delete(key);
+          else state.statusExpandedMothers.add(key);
+          preserveMainScroll(renderDashboard);
+        });
+      });
+    }
+
+    function renderRiskGroups(runs) {
+      return `
+        <div class="risk-grid">
+          ${runs.map(run => {
+            const bad = countBadItems(run);
+            return `
+              <div class="risk-card ${riskLevel(bad)}">
+                <div class="risk-top">
+                  <div>
+                    <strong>${escapeHtml(compactRunLabel(run))}</strong><br>
+                    <span class="param-line">${escapeHtml(run.reduction_path ? `降群路径：${run.reduction_path}` : run.relative_path)}</span>
+                  </div>
+                  <div class="risk-count">${bad}</div>
+                </div>
+                <div class="mini-actions">
+                  <button class="mini-btn" data-run="${run.id}">查看</button>
+                  <button class="mini-btn" data-open-folder="${run.id}">打开文件夹</button>
+                  <a class="mini-btn" href="/topology_transition_analysis.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">拓扑热图</a>
+                  <a class="mini-btn" href="/spectral_physics_diagnostics.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">光谱诊断</a>
+                  ${run.name.startsWith('run_full') ? `<button class="mini-btn danger-btn" data-delete-run="${run.id}">删除该 run_full</button>` : ''}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    function riskLevel(count) {
+      if (count >= 9) return 'critical';
+      if (count >= 6) return 'high';
+      if (count >= 3) return 'mid';
+      return 'low';
+    }
+
+    function renderBadTable(entries) {
+      return `
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>结构 / 扰动</th><th>扫描点</th><th>max_T</th><th>max_nm</th><th>min_nm</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              ${entries.map(({ run, item }) => `
+                <tr class="unconverged">
+                  <td>${escapeHtml(compactRunLabel(run))}</td>
+                  <td>${escapeHtml(shortItemName(item))}<br><span class="param-line">${escapeHtml(paramText(item, 5))}</span></td>
+                  <td>${fmt(item.max_abs2, 5)}</td>
+                  <td>${fmt(item.max_wavelength_nm, 2)}</td>
+                  <td>${fmt(item.min_wavelength_nm, 2)}</td>
+                  <td>
+                    <button class="mini-btn" data-run="${run.id}">查看</button>
+                    <button class="mini-btn" data-open-folder="${run.id}">打开文件夹</button>
+                    <a class="mini-btn" href="/topology_transition_analysis.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">拓扑热图</a>
+                    <a class="mini-btn" href="/spectral_physics_diagnostics.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">光谱诊断</a>
+                    ${run.name.startsWith('run_full') ? `<button class="mini-btn danger-btn" data-delete-run="${run.id}">删除 run</button>` : ''}
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function renderEmpty() {
+      const msg = state.data && !state.data.exists
+        ? `结果根目录不存在：${state.data.root}`
+        : '还没有扫描到包含 PNG/XLSX/manifest 的结果。仿真结束后点击“重新扫描”。';
+      $('main').innerHTML = `<div class="empty">${escapeHtml(msg)}</div>`;
+    }
+
+    function renderRunTags(run) {
+      const tags = new Set(run?.tags || []);
+      return `
+        <div class="tag-row" aria-label="run 标签">
+          ${RUN_TAGS.map(tag => `
+            <button class="tag-chip ${tags.has(tag) ? 'active' : ''}" type="button" data-run-tag="${escapeHtml(tag)}">
+              ${escapeHtml(tag)}
+            </button>
+          `).join('')}
+          <button class="mini-btn" type="button" data-copy-summary="${run?.id || ''}">复制 Markdown 摘要</button>
+        </div>
+      `;
+    }
+
+    function runRangeText(run) {
+      const values = (run?.items || []).map(scanParamNumber).filter(Number.isFinite).sort((a, b) => a - b);
+      if (!values.length) return '未记录';
+      return values.length === 1 ? `${fmt(values[0])}` : `${fmt(values[0])} 到 ${fmt(values[values.length - 1])}`;
+    }
+
+    function bestItemBy(run, getter, mode = 'min') {
+      const rows = (run?.items || [])
+        .map(item => ({ item, value: getter(item) }))
+        .filter(row => Number.isFinite(row.value));
+      if (!rows.length) return null;
+      rows.sort((a, b) => mode === 'max' ? b.value - a.value : a.value - b.value);
+      return rows[0];
+    }
+
+    function biggestPeakJump(run) {
+      const rows = (run?.items || [])
+        .map(item => ({ x: scanParamNumber(item), y: numericMetric(item, METRIC_KEYS.peak) }))
+        .filter(row => Number.isFinite(row.x) && Number.isFinite(row.y))
+        .sort((a, b) => a.x - b.x);
+      let jump = null;
+      for (let i = 1; i < rows.length; i += 1) {
+        const diff = Math.abs(rows[i].y - rows[i - 1].y);
+        if (jump === null || diff > jump) jump = diff;
+      }
+      return jump;
+    }
+
+    function markdownSummary(run) {
+      const items = run?.items || [];
+      const bad = countBadItems(run);
+      const narrow = bestItemBy(run, item => numericMetric(item, METRIC_KEYS.fwhm), 'min');
+      const bestQ = bestItemBy(run, item => numericMetric(item, METRIC_KEYS.q), 'max');
+      const worst = bestItemBy(run, item => Number(item.max_abs2), 'max');
+      const jump = biggestPeakJump(run);
+      const recommendation = bad ? '先复查不收敛点并缩短/加密相关区间。' : (narrow || bestQ ? '优先围绕高 Q / 窄 FWHM 区域做加密扫描。' : '补充 FWHM、Q、峰数等指标后再排序候选。');
+      return [
+        `# ${compactRunLabel(run)}`,
+        '',
+        `- 结构：${run?.group || '未记录'}`,
+        `- 扰动：${run?.perturbation || '未记录'}`,
+        `- 扫描范围：${runRangeText(run)}`,
+        `- 有效扫描点：${items.filter(hasUsefulSpectrum).length}/${items.length}`,
+        `- 不收敛点：${bad}`,
+        `- 最窄 FWHM：${narrow ? `${fmt(narrow.value, 4)} nm（${narrow.item.name || narrow.item.index}）` : '未记录'}`,
+        `- 最高 Q：${bestQ ? `${fmt(bestQ.value, 4)}（${bestQ.item.name || bestQ.item.index}）` : '未记录'}`,
+        `- 最大异常：${worst ? `max(T)=${fmt(worst.value, 6)}（${worst.item.name || worst.item.index}）` : '未记录'}`,
+        `- 峰位最大跳变：${jump === null ? '未记录' : `${fmt(jump, 4)} nm`}`,
+        `- 下一步建议：${recommendation}`
+      ].join('\n');
+    }
+
+    function renderMain() {
+      const run = state.selectedRun;
+      if (!run) return renderEmpty();
+      const item = state.selectedItem;
+      const badCount = countBadItems(run);
+      const fullMode = run.name.startsWith('run_full') ? 'full' : run.name.startsWith('run_test') ? 'test' : run.name.startsWith('run_preview') ? 'preview' : 'run';
+
+      $('main').innerHTML = `
+        <div class="workspace">
+          <section class="run-header">
+            <div class="run-title-block">
+              <div class="run-breadcrumb">结果浏览 / ${escapeHtml(run.category || '未分类')} / ${escapeHtml(run.mother || '未标注母结构')}</div>
+              <h2>${escapeHtml(compactRunLabel(run))}</h2>
+              <div class="path">${escapeHtml(run.relative_path)}</div>
+              <div class="run-kpi-row">
+                <span class="status-pill ${badCount ? 'bad' : 'ok'}">${badCount ? `不收敛 ${badCount}` : '谱线状态正常'}</span>
+                <span class="status-pill info">${escapeHtml(fullMode)}</span>
+                <span class="status-pill">${run.items.length} 个扫描点</span>
+                ${run.reduction_path ? `<span class="status-pill violet">降群路径 ${escapeHtml(run.reduction_path)}</span>` : ''}
+              </div>
+              ${renderRunTags(run)}
+            </div>
+            <div class="run-actions">
+              <div class="tabs primary-tabs" aria-label="分析视图">
+                <button class="tab ${state.tab === 'image' ? 'active' : ''}" data-tab="image">谱图</button>
+                <button class="tab ${state.tab === 'plot' ? 'active' : ''}" data-tab="plot">全部曲线</button>
+                <button class="tab ${state.tab === 'compare' ? 'active' : ''}" data-tab="compare">挑选趋势</button>
+                <button class="tab ${state.tab === 'trend' ? 'active' : ''}" data-tab="trend">趋势</button>
+                <button class="tab ${state.tab === 'table' ? 'active' : ''}" data-tab="table">指标表</button>
+                <button class="tab ${state.tab === 'anomalies' ? 'active' : ''}" data-tab="anomalies">异常点</button>
+                <button class="tab ${state.tab === 'bzf' ? 'active' : ''}" data-tab="bzf">BZF分析</button>
+                <button class="tab ${state.tab === 'files' ? 'active' : ''}" data-tab="files">文件</button>
+                <button class="tab ${state.tab === 'note' ? 'active' : ''}" data-tab="note">结构说明</button>
+              </div>
+              <div class="tabs file-actions" aria-label="文件与管理">
+                <button class="tab" data-open-folder="${run.id}">打开文件夹</button>
+                ${item?.fsp_id ? `<button class="tab" data-open-file="${item.fsp_id}">打开当前 .fsp</button>` : ''}
+                <button class="tab" data-manage-current-run="${run.id}">整理当前扰动</button>
+                <a class="tab topology-link" href="/topology_transition_analysis.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">拓扑热图 / 相变分析</a>
+                <a class="tab topology-link" href="/spectral_physics_diagnostics.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">光谱诊断</a>
+                <a class="tab topology-link" href="/spectral_compare.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">多谱线对比</a>
+                <a class="tab topology-link" href="/field_phase_poynting_viewer.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">场图联动</a>
+                <a class="tab topology-link" href="/report_preview_print.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">报告预览</a>
+                <a class="tab topology-link" href="/resource_file_browser.html?run_id=${encodeURIComponent(run.id)}" target="_blank" rel="noopener">资源浏览</a>
+                ${run.name.startsWith('run_full') ? `<button class="tab danger-btn" data-delete-run="${run.id}">删除该 run_full</button>` : ''}
+              </div>
+            </div>
+          </section>
+
+          <section class="viewer-grid">
+            <div class="panel">
+              <div class="panel-title">
+                <span>扫描点</span>
+                <span class="mini-actions">
+                  <button class="mini-btn" data-select-visible="all">全选</button>
+                  <button class="mini-btn" data-select-visible="clear">清空</button>
+                  <span class="pill">${state.selectedCompareIds.size}/${run.items.length}</span>
+                </span>
+              </div>
+              <div class="scan-list">
+                ${run.items.map(scan => `
+                  <div class="scan-item ${item && String(item.uid) === String(scan.uid) ? 'active' : ''} ${scan.unconverged ? 'unconverged' : ''}" data-item="${escapeHtml(String(scan.uid))}">
+                    <input type="checkbox" data-compare="${escapeHtml(String(scan.uid))}" ${state.selectedCompareIds.has(String(scan.uid)) ? 'checked' : ''} title="加入趋势对比">
+                    <div class="scan-text">
+                      <strong><i class="scan-dot ${scan.unconverged ? 'bad' : hasUsefulSpectrum(scan) ? 'ok' : 'idle'}"></i>${escapeHtml(scan.name)}</strong>
+                      <span>index ${escapeHtml(String(scan.index || '-'))} · value ${fmt(scan.value_nm)} nm · min λ ${fmt(scan.min_wavelength_nm, 2)} nm · maxT ${fmt(scan.max_abs2, 4)}${scan.unconverged ? ' · 不收敛' : ''}</span>
+                      <div class="param-line">${escapeHtml(paramText(scan, 4))}</div>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+            <div class="panel" id="contentPanel">${renderTabContent()}</div>
+          </section>
+        </div>
+      `;
+
+      document.querySelectorAll('[data-tab]').forEach(btn => {
+        btn.addEventListener('click', () => setTab(btn.dataset.tab));
+      });
+      document.querySelectorAll('[data-item]').forEach(btn => {
+        btn.addEventListener('click', (event) => {
+          if (event.target.matches('[data-compare]')) return;
+          selectItem(btn.dataset.item);
+        });
+      });
+      document.querySelectorAll('[data-compare]').forEach(box => {
+        box.addEventListener('change', () => toggleCompare(box.dataset.compare, box.checked));
+      });
+      document.querySelectorAll('[data-select-visible]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (btn.dataset.selectVisible === 'all') {
+            state.selectedCompareIds = new Set(run.items.filter(i => i.xlsx_id).map(i => String(i.uid)));
+          } else {
+            state.selectedCompareIds = new Set();
+          }
+          renderMain();
+        });
+      });
+      bindOpenFolderButtons();
+      bindOpenFileButtons();
+      bindManageCurrentButtons();
+      bindDeleteButtons();
+      bindStartButtons();
+      bindRunTagButtons();
+      bindMarkdownSummaryButtons();
+      document.querySelectorAll('[data-thumb-item]').forEach(btn => {
+        btn.addEventListener('click', () => selectItem(btn.dataset.thumbItem));
+      });
+      bindImagePlaybackControls();
+      bindSpectrumImageFallbacks();
+      document.querySelectorAll('[data-delete-current-item]').forEach(btn => btn.addEventListener('click', () => deleteCurrentItem(state.selectedItem)));
+      syncImageAutoplay();
+
+      if (state.tab === 'plot' || state.tab === 'compare') renderPlot();
+      if (state.tab === 'trend') renderTrendTab();
+    }
+
+    function bindRunTagButtons() {
+      document.querySelectorAll('[data-run-tag]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const run = state.selectedRun;
+          if (!run) return;
+          const tag = btn.dataset.runTag;
+          const tags = new Set(run.tags || []);
+          if (tags.has(tag)) tags.delete(tag);
+          else tags.add(tag);
+          run.tags = [...tags];
+          btn.classList.toggle('active', tags.has(tag));
+          try {
+            const res = await fetch('/api/run-tags', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: run.id, tags: run.tags })
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'tag update failed');
+            run.tags = data.tags || run.tags;
+          } catch (err) {
+            console.warn(err);
+            alert(`标签保存失败：${err.message || err}`);
+          }
+        });
+      });
+    }
+
+    function bindMarkdownSummaryButtons() {
+      document.querySelectorAll('[data-copy-summary]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const run = state.selectedRun;
+          if (!run) return;
+          const text = markdownSummary(run);
+          try {
+            await navigator.clipboard.writeText(text);
+            btn.textContent = '已复制摘要';
+            setTimeout(() => { btn.textContent = '复制 Markdown 摘要'; }, 1400);
+          } catch (err) {
+            const box = document.createElement('textarea');
+            box.value = text;
+            document.body.appendChild(box);
+            box.select();
+            document.execCommand('copy');
+            box.remove();
+            btn.textContent = '已复制摘要';
+            setTimeout(() => { btn.textContent = '复制 Markdown 摘要'; }, 1400);
+          }
+        });
+      });
+    }
+
+    function renderImagePlaybackControls(run, item) {
+      const items = imageItems(run);
+      const index = imageItemIndex(item, run);
+      const total = items.length;
+      const current = index >= 0 ? index + 1 : 0;
+      const progress = total ? Math.round((current / total) * 100) : 0;
+      const disabled = total <= 1 ? 'disabled' : '';
+      const speeds = [
+        [900, '快速 0.9s'],
+        [1400, '正常 1.4s'],
+        [1800, '舒适 1.8s'],
+        [2600, '慢速 2.6s']
+      ];
+      return `
+        <div class="image-controls">
+          <div class="image-control-row">
+            <div class="mini-actions">
+              <button class="mini-btn" data-image-step="-1" ${disabled}>上一张</button>
+              <button class="mini-btn primary-mini" data-image-play ${disabled}>${state.imageAutoplay ? '暂停播放' : '自动播放'}</button>
+              <button class="mini-btn" data-image-step="1" ${disabled}>下一张</button>
+            </div>
+            <div class="mini-actions">
+              <span class="pill">${current}/${total || 0}</span>
+              <select data-image-speed aria-label="播放速度">
+                ${speeds.map(([ms, label]) => `<option value="${ms}" ${Number(state.imagePlaybackMs) === ms ? 'selected' : ''}>${label}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="image-progress">
+            <span>${escapeHtml(legendLabel(item))}</span>
+            <div class="image-progress-bar"><span style="width:${progress}%"></span></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderSpectrumImage(item) {
+      if (!item?.png_id) return '<div class="empty">没有 PNG 谱图</div>';
+      const src = fileUrl(item.png_id);
+      return `<img class="spectrum-img" src="${src}" alt="transmission spectrum" data-spectrum-src="${src}">`;
+    }
+
+    function bindSpectrumImageFallbacks() {
+      document.querySelectorAll('img.spectrum-img').forEach(img => {
+        img.onerror = () => {
+          const src = img.dataset.spectrumSrc || img.src;
+          const box = document.createElement('div');
+          box.className = 'empty';
+          box.innerHTML = `谱图加载失败。<br><button class="mini-btn" type="button">重试加载</button><br><span class="param-line">${escapeHtml(src)}</span>`;
+          box.querySelector('button')?.addEventListener('click', () => {
+            const fresh = document.createElement('img');
+            fresh.className = 'spectrum-img';
+            fresh.alt = 'transmission spectrum';
+            fresh.dataset.spectrumSrc = src;
+            fresh.src = `${src}${src.includes('?') ? '&' : '?'}t=${Date.now()}`;
+            box.replaceWith(fresh);
+            bindSpectrumImageFallbacks();
+          });
+          img.replaceWith(box);
+        };
+      });
+    }
+
+    function imageItems(run = state.selectedRun) {
+      return (run?.items || []).filter(item => item.png_id);
+    }
+
+    function imageItemIndex(item = state.selectedItem, run = state.selectedRun) {
+      const items = imageItems(run);
+      return items.findIndex(candidate => String(candidate.uid) === String(item?.uid));
+    }
+
+    function stepImage(delta) {
+      const items = imageItems();
+      if (!items.length) {
+        stopImageAutoplay();
+        return;
+      }
+      const currentIndex = imageItemIndex();
+      const nextIndex = currentIndex >= 0
+        ? (currentIndex + delta + items.length) % items.length
+        : 0;
+      state.selectedItem = items[nextIndex];
+      state.tab = 'image';
+      renderMain();
+    }
+
+    function bindImagePlaybackControls() {
+      document.querySelectorAll('[data-image-step]').forEach(btn => {
+        btn.addEventListener('click', () => stepImage(Number(btn.dataset.imageStep || 1)));
+      });
+      document.querySelectorAll('[data-image-play]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.imageAutoplay = !state.imageAutoplay;
+          renderMain();
+        });
+      });
+      document.querySelectorAll('[data-image-speed]').forEach(select => {
+        select.addEventListener('change', () => {
+          state.imagePlaybackMs = Number(select.value) || 1800;
+          syncImageAutoplay();
+        });
+      });
+    }
+
+    function syncImageAutoplay() {
+      clearImagePlaybackTimer();
+      if (!state.imageAutoplay) return;
+      if (state.view !== 'run' || state.tab !== 'image' || imageItems().length <= 1) {
+        state.imageAutoplay = false;
+        return;
+      }
+      imagePlaybackTimer = setInterval(() => stepImage(1), state.imagePlaybackMs);
+    }
+
+    function stopImageAutoplay() {
+      state.imageAutoplay = false;
+      clearImagePlaybackTimer();
+    }
+
+    function clearImagePlaybackTimer() {
+      if (imagePlaybackTimer) {
+        clearInterval(imagePlaybackTimer);
+        imagePlaybackTimer = null;
+      }
+    }
+
+    function renderScanThumbnailMatrix(run, currentItem) {
+      const items = run?.items || [];
+      if (!items.length) return '';
+      return `
+        <div class="panel-title"><span>扫描点缩略矩阵</span><span class="pill">${items.length} 点</span></div>
+        <div class="thumb-grid">
+          ${items.map(i => {
+            const peak = numericMetric(i, METRIC_KEYS.peak);
+            const fwhm = numericMetric(i, METRIC_KEYS.fwhm);
+            const q = numericMetric(i, METRIC_KEYS.q);
+            const active = String(i.uid) === String(currentItem?.uid);
+            return `
+              <button class="scan-thumb ${active ? 'active' : ''} ${i.unconverged ? 'unconverged' : ''}" type="button" data-thumb-item="${escapeHtml(String(i.uid))}">
+                <b>${escapeHtml(i.index || i.name || '-')} / ${fmt(scanParamValue(i))} nm</b>
+                <span>maxT ${fmt(i.max_abs2, 4)} · minT ${fmt(i.min_abs2, 4)}</span>
+                <span>peak λ ${peak === null ? '未记录' : `${fmt(peak, 3)} nm`}</span>
+                <span>FWHM ${fwhm === null ? '未记录' : fmt(fwhm, 3)} · Q ${q === null ? '未记录' : fmt(q, 2)}</span>
+                <span>${i.unconverged ? '异常：max(T)>1' : (hasUsefulSpectrum(i) ? '谱线可用' : '缺少谱线文件')}</span>
+              </button>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    function renderAnomalies(run) {
+      const rows = [];
+      if (!run.has_manifest) rows.push({ level: 'bad', name: 'manifest.csv', detail: '当前 run 未记录 manifest.csv' });
+      if (!run.has_scan_plan) rows.push({ level: 'warn', name: 'scan_points.csv', detail: '当前 run 未记录扫描计划' });
+      for (const item of run.items || []) {
+        const reasons = [];
+        if (item.unconverged || Number(item.max_abs2) > 1) reasons.push(`max(T)=${fmt(item.max_abs2, 6)}`);
+        if (!item.png_id) reasons.push('缺少 PNG');
+        if (!item.xlsx_id) reasons.push('缺少 XLSX');
+        if (item.status && !['ok', 'success'].includes(String(item.status).toLowerCase())) reasons.push(`status=${item.status}`);
+        if (reasons.length) rows.push({ level: item.unconverged ? 'bad' : 'warn', name: item.name || item.index || '-', detail: reasons.join('；'), item });
+      }
+      if (!rows.length) {
+        return '<div class="panel-title"><span>异常点</span><span class="pill">0</span></div><div class="empty">当前 run 没有检测到明显异常。</div>';
+      }
+      return `
+        <div class="panel-title"><span>异常点</span><span class="pill">${rows.length}</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>级别</th><th>对象</th><th>参数</th><th>问题</th><th>操作</th></tr></thead>
+            <tbody>
+              ${rows.map(row => `
+                <tr class="${row.level === 'bad' ? 'unconverged' : ''}">
+                  <td>${row.level === 'bad' ? '高风险' : '提醒'}</td>
+                  <td>${escapeHtml(row.name)}</td>
+                  <td>${row.item ? `${fmt(scanParamValue(row.item))} nm` : '未记录'}</td>
+                  <td>${escapeHtml(row.detail)}</td>
+                  <td>${row.item ? `<button class="mini-btn" data-thumb-item="${escapeHtml(String(row.item.uid))}">查看</button>` : ''}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function renderRunFiles(run, item) {
+      const rows = [
+        { name: 'run 文件夹', detail: run.relative_path, folder: run.id, ok: true },
+        { name: 'manifest.csv', detail: run.has_manifest ? '04_logs/manifest.csv' : '未记录', file: run.manifest_id, ok: run.has_manifest },
+        { name: 'scan_points.csv', detail: run.has_scan_plan ? '00_scan_plan/scan_points.csv' : '未记录', file: run.scan_plan_id, ok: run.has_scan_plan },
+        { name: '结构说明', detail: run.has_note ? '结构状态说明.md' : '暂无数据', file: run.note_id, ok: run.has_note },
+        { name: '当前 PNG 谱图', detail: item?.png_name || '暂无数据', file: item?.png_id, ok: Boolean(item?.png_id) },
+        { name: '当前 XLSX 谱线', detail: item?.xlsx_name || '暂无数据', file: item?.xlsx_id, ok: Boolean(item?.xlsx_id) },
+        { name: '当前 .fsp 文件', detail: item?.fsp_name || '暂无数据', file: item?.fsp_id, ok: Boolean(item?.fsp_id) }
+      ];
+      return `
+        <div class="panel-title"><span>文件</span><span class="pill">${rows.filter(r => r.ok).length}/${rows.length}</span></div>
+        <div class="workbench-grid">
+          ${rows.map(row => `
+            <div class="file-row ${row.ok ? '' : 'missing-file'}">
+              <span><strong>${escapeHtml(row.name)}</strong><br>${escapeHtml(row.detail)}</span>
+              ${row.folder ? `<button class="mini-btn" data-open-folder="${row.folder}">打开</button>` : ''}
+              ${row.file ? `<button class="mini-btn" data-open-file="${row.file}">打开</button>` : '<span class="pill">未记录</span>'}
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function renderTabContent() {
+      const run = state.selectedRun;
+      const item = state.selectedItem;
+      if (state.tab === 'image') {
+        if (!item) return '<div class="empty">这个 run 里没有扫描点</div>';
+        return `
+          <div class="panel-title">
+            <span>${escapeHtml(item.name)}</span>
+            <span class="pill">${escapeHtml(item.status || 'unknown')}</span>
+            <button class="mini-btn danger-btn" data-delete-current-item="1">删除当前图片/Excel</button>
+          </div>
+          ${renderImagePlaybackControls(run, item)}
+          <div class="image-box">
+            ${renderSpectrumImage(item)}
+            <div class="metric-grid">
+              <div class="metric-card ${item.unconverged ? 'bad' : 'ok'}"><span>状态</span><b>${item.unconverged ? '不收敛' : escapeHtml(item.status || 'ok')}</b><small>${item.unconverged ? 'max(T)>1，建议复查 mesh/边界/归一化' : '谱线可用于浏览'}</small></div>
+              <div class="metric-card"><span>扫描参数</span><b>${fmt(item.value_nm)} nm</b><small>步长 ${fmt(item.step_nm)} nm</small></div>
+              <div class="metric-card ${item.unconverged ? 'bad' : ''}"><span>最大 T</span><b>${fmt(item.max_abs2, 6)}</b><small>@ ${fmt(item.max_wavelength_nm, 3)} nm</small></div>
+              <div class="metric-card"><span>最小 T</span><b>${fmt(item.min_abs2, 6)}</b><small>@ ${fmt(item.min_wavelength_nm, 3)} nm</small></div>
+              <div class="metric-card"><span>耗时</span><b>${fmt(item.elapsed_s, 2)} s</b><small>${escapeHtml(item.y_column || 'T_abs2')}</small></div>
+              <div class="metric-card wide"><span>XLSX / 参数</span><b>${escapeHtml(item.xlsx_name || '-')}</b><small>${escapeHtml(paramText(item, 20) || '-')}</small></div>
+            </div>
+          </div>
+          ${renderScanThumbnailMatrix(run, item)}
+        `;
+      }
+      if (state.tab === 'plot') {
+        return '<div class="panel-title"><span>全部透射谱曲线（由 Excel 计算）</span><span class="pill">T_abs2</span></div><div id="plot"></div><div id="plotMetrics" class="plot-metrics"></div>';
+      }
+      if (state.tab === 'compare') {
+        return `<div class="panel-title"><span>已挑选趋势图（由 Excel 计算）</span><span class="pill">${state.selectedCompareIds.size} 条曲线</span></div><div id="plot"></div><div id="plotMetrics" class="plot-metrics"></div>`;
+      }
+      if (state.tab === 'trend') {
+        return '<div class="panel-title"><span>趋势</span><span class="pill">参数 vs 指标</span></div><div id="trendGrid" class="workbench-grid"></div>';
+      }
+      if (state.tab === 'table') {
+        return `
+          <div class="panel-title"><span>扫描指标</span><span class="pill">${run.items.length}</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>index</th><th>value_nm</th><th>status</th><th>min_T</th><th>min_lambda_nm</th><th>max_T</th><th>max_lambda_nm</th><th>elapsed_s</th><th>参数</th><th>png</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${run.items.map(i => `
+                  <tr class="${i.unconverged ? 'unconverged' : ''}">
+                    <td>${escapeHtml(String(i.index))}</td>
+                    <td>${fmt(i.value_nm)}</td>
+                    <td>${i.unconverged ? '不收敛 T>1' : escapeHtml(i.status || 'ok')}</td>
+                    <td>${fmt(i.min_abs2, 6)}</td>
+                    <td>${fmt(i.min_wavelength_nm, 3)}</td>
+                    <td>${fmt(i.max_abs2, 6)}</td>
+                    <td>${fmt(i.max_wavelength_nm, 3)}</td>
+                    <td>${fmt(i.elapsed_s, 2)}</td>
+                    <td>${escapeHtml(paramText(i, 8))}</td>
+                    <td>${escapeHtml(i.png_name || '')}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+      if (state.tab === 'anomalies') {
+        return renderAnomalies(run);
+      }
+      if (state.tab === 'bzf') {
+        return window.FDTDBZF
+          ? window.FDTDBZF.render(run, item)
+          : '<div class="empty">BZF 分析模块未加载。</div>';
+      }
+      if (state.tab === 'files') {
+        return renderRunFiles(run, item);
+      }
+      if (state.tab === 'note') {
+        return `<div class="panel-title"><span>结构状态说明</span></div><div class="note">${escapeHtml(run.note || '没有找到“结构状态说明.md”')}</div>`;
+      }
+      return '';
+    }
+
+    function renderNativeLineChart(panel, traces, options = {}) {
+      const series = traces.map(trace => {
+        const points = trace.x.map((x, idx) => [Number(x), Number(trace.y[idx])])
+          .filter(point => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+        return { name: trace.name || '', points, line: trace.line || {}, opacity: trace.opacity };
+      }).filter(trace => trace.points.length >= 2);
+      if (!series.length) {
+        panel.innerHTML = '<div class="empty">没有足够的数值点可以画曲线</div>';
+        return;
+      }
+      const xs = series.flatMap(trace => trace.points.map(point => point[0]));
+      const ys = series.flatMap(trace => trace.points.map(point => point[1]));
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+      const width = 980, height = 430;
+      const pad = { left: 64, right: 22, top: 26, bottom: 58 };
+      const innerW = width - pad.left - pad.right;
+      const innerH = height - pad.top - pad.bottom;
+      const spanX = maxX - minX || 1;
+      const spanY = maxY - minY || 1;
+      const sx = value => pad.left + (value - minX) / spanX * innerW;
+      const sy = value => pad.top + innerH - (value - minY) / spanY * innerH;
+      const colors = ['#0f766e', '#2563eb', '#dc2626', '#9333ea', '#ca8a04', '#0891b2', '#be123c', '#4f46e5'];
+      const grid = [0, 0.25, 0.5, 0.75, 1].map(r => {
+        const y = pad.top + innerH * r;
+        const x = pad.left + innerW * r;
+        return `<line class="grid-line" x1="${pad.left}" y1="${y}" x2="${pad.left + innerW}" y2="${y}"></line><line class="grid-line" x1="${x}" y1="${pad.top}" x2="${x}" y2="${pad.top + innerH}"></line>`;
+      }).join('');
+      const paths = series.map((trace, idx) => {
+        const step = Math.max(1, Math.ceil(trace.points.length / 650));
+        const sampled = trace.points.filter((_, i) => i % step === 0);
+        const d = sampled.map((point, i) => `${i ? 'L' : 'M'}${sx(point[0]).toFixed(1)},${sy(point[1]).toFixed(1)}`).join(' ');
+        const color = trace.line?.color || colors[idx % colors.length];
+        const width = trace.line?.width || 1.6;
+        const opacity = trace.opacity ?? 0.9;
+        const dash = trace.line?.dash === 'dash' ? ' stroke-dasharray="6 4"' : '';
+        return `<path d="${d}" fill="none" stroke="${color}" stroke-width="${width}" opacity="${opacity}"${dash}><title>${escapeHtml(trace.name)}</title></path>`;
+      }).join('');
+      const legend = series.slice(0, 10).map((trace, idx) => {
+        const x = pad.left + (idx % 2) * 350;
+        const y = height - 34 + Math.floor(idx / 2) * 15;
+        const color = trace.line?.color || colors[idx % colors.length];
+        const dash = trace.line?.dash === 'dash' ? ' stroke-dasharray="6 4"' : '';
+        return `<g><line x1="${x}" y1="${y - 4}" x2="${x + 18}" y2="${y - 4}" stroke="${color}" stroke-width="2"${dash}></line><text x="${x + 24}" y="${y}">${escapeHtml(trace.name).slice(0, 48)}</text></g>`;
+      }).join('');
+      panel.innerHTML = `
+        <svg class="native-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="transmission chart">
+          ${grid}
+          <line class="axis" x1="${pad.left}" y1="${pad.top + innerH}" x2="${pad.left + innerW}" y2="${pad.top + innerH}"></line>
+          <line class="axis" x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${pad.top + innerH}"></line>
+          ${paths}
+          <text x="${pad.left}" y="${height - 14}">${escapeHtml(options.xTitle || 'Wavelength (nm)')} · ${fmt(minX, 2)} 到 ${fmt(maxX, 2)}</text>
+          <text x="10" y="${pad.top + 12}" transform="rotate(-90 10 ${pad.top + 12})">${escapeHtml(options.yTitle || 'Transmission |T|²')} · ${fmt(minY, 4)} 到 ${fmt(maxY, 4)}</text>
+          ${legend}
+        </svg>`;
+    }
+
+    function trendMetricRows(run, keys) {
+      return (run?.items || [])
+        .map((item, idx) => {
+          const x = scanParamNumber(item);
+          const y = numericMetric(item, keys);
+          return { item, x: Number.isFinite(x) ? x : idx, y };
+        })
+        .filter(row => Number.isFinite(row.x) && Number.isFinite(row.y))
+        .sort((a, b) => a.x - b.x);
+    }
+
+    function renderTrendTab() {
+      const run = state.selectedRun;
+      const grid = $('trendGrid');
+      if (!run || !grid) return;
+      const defs = [
+        { key: 'peak', title: '参数 vs peak wavelength', yTitle: 'peak wavelength (nm)', keys: METRIC_KEYS.peak },
+        { key: 'minT', title: '参数 vs min(T)', yTitle: 'min(T)', keys: ['min_abs2', 'min_T', 'min_transmission'] },
+        { key: 'maxT', title: '参数 vs max(T)', yTitle: 'max(T)', keys: ['max_abs2', 'max_T', 'max_transmission'] },
+        { key: 'fwhm', title: '参数 vs FWHM', yTitle: 'FWHM (nm)', keys: METRIC_KEYS.fwhm },
+        { key: 'q', title: '参数 vs Q', yTitle: 'Q', keys: METRIC_KEYS.q },
+        { key: 'peaks', title: '参数 vs num_peaks', yTitle: 'num_peaks', keys: METRIC_KEYS.peaks }
+      ];
+      grid.innerHTML = defs.map(def => {
+        const rows = trendMetricRows(run, def.keys);
+        const msg = rows.length >= 2 ? '' : '<div class="empty compact-empty">当前结果未记录该指标</div>';
+        return `<div class="workbench-card trend-card"><strong>${def.title}</strong><div id="trend-${def.key}" class="trend-chart">${msg}</div></div>`;
+      }).join('');
+      for (const def of defs) {
+        const rows = trendMetricRows(run, def.keys);
+        const panel = $(`trend-${def.key}`);
+        if (!panel || rows.length < 2) continue;
+        const trace = {
+          x: rows.map(row => row.x),
+          y: rows.map(row => row.y),
+          mode: 'lines+markers',
+          type: 'scatter',
+          name: def.title,
+          marker: {
+            size: rows.map(row => isBaselineItem(row.item) ? 10 : 7),
+            color: rows.map(row => row.item.unconverged ? '#dc2626' : (isBaselineItem(row.item) ? '#111827' : '#0f766e'))
+          },
+          line: { width: 2, color: '#0f766e' },
+          text: rows.map(row => legendLabel(row.item))
+        };
+        if (window.Plotly) {
+          try {
+            const result = Plotly.newPlot(panel, [trace], {
+            margin: { l: 52, r: 12, t: 10, b: 42 },
+            xaxis: { title: 'scan parameter (nm)', zeroline: true },
+            yaxis: { title: def.yTitle, zeroline: false },
+            hovermode: 'closest',
+            showlegend: false
+          }, PLOTLY_CONFIG);
+            if (result && typeof result.catch === 'function') {
+              result.catch(() => renderNativeLineChart(panel, [trace], { xTitle: 'scan parameter (nm)', yTitle: def.yTitle }));
+            }
+          } catch (err) {
+            renderNativeLineChart(panel, [trace], { xTitle: 'scan parameter (nm)', yTitle: def.yTitle });
+          }
+        } else {
+          renderNativeLineChart(panel, [trace], { xTitle: 'scan parameter (nm)', yTitle: def.yTitle });
+        }
+      }
+    }
+
+    async function renderPlot() {
+      const run = state.selectedRun;
+      const panel = $('plot');
+      if (!panel || !run) return;
+      panel.innerHTML = '';
+
+      const picked = state.tab === 'compare'
+        ? run.items.filter(i => state.selectedCompareIds.has(String(i.uid)) && i.xlsx_id)
+        : run.items.filter(i => i.xlsx_id).slice(0, 60);
+      const targets = picked;
+      if (!targets.length) {
+        panel.innerHTML = state.tab === 'compare'
+          ? '<div class="empty">请在左侧勾选要放到同一张图里的扫描点</div>'
+          : '<div class="empty">没有 XLSX 数据可以画曲线</div>';
+        return;
+      }
+
+      const traces = [];
+      for (const item of targets) {
+        try {
+          const res = await fetch(`/api/xlsx?id=${encodeURIComponent(item.xlsx_id)}`);
+          const data = await res.json();
+          if (data.error || !data.points?.length) continue;
+          const baseline = isBaselineItem(item);
+          const current = String(state.selectedItem?.uid) === String(item.uid);
+          const bad = item.unconverged || Number(item.max_abs2) > 1;
+          traces.push({
+            x: data.points.map(p => p[0]),
+            y: data.points.map(p => p[1]),
+            mode: 'lines',
+            type: 'scatter',
+            name: legendLabel(item),
+            opacity: baseline || current ? 1 : 0.48,
+            line: {
+              width: baseline ? 3.2 : (current ? 2.8 : 1.4),
+              color: bad ? '#dc2626' : (baseline ? '#111827' : (current ? '#0f766e' : '#14b8a6')),
+              dash: bad ? 'dash' : 'solid'
+            }
+          });
+        } catch (err) {
+          console.warn(err);
+        }
+      }
+
+      if (!traces.length) {
+        panel.innerHTML = '<div class="empty">XLSX 读取失败，仍可在“谱图”中查看 PNG</div>';
+        return;
+      }
+
+      if (window.Plotly) {
+        try {
+          const result = Plotly.newPlot(panel, traces, {
+          margin: { l: 58, r: 18, t: 24, b: 54 },
+          xaxis: { title: 'Wavelength (nm)', zeroline: false },
+          yaxis: { title: 'Transmission |T|²', zeroline: false },
+          legend: { orientation: 'h', x: 0, y: -0.24 },
+          hovermode: 'closest'
+        }, PLOTLY_CONFIG);
+          if (result && typeof result.catch === 'function') {
+            result.catch(() => renderNativeLineChart(panel, traces, { xTitle: 'Wavelength (nm)', yTitle: 'Transmission |T|²' }));
+          }
+        } catch (err) {
+          renderNativeLineChart(panel, traces, { xTitle: 'Wavelength (nm)', yTitle: 'Transmission |T|²' });
+        }
+      } else {
+        renderNativeLineChart(panel, traces, { xTitle: 'Wavelength (nm)', yTitle: 'Transmission |T|²' });
+      }
+
+      const metrics = $('plotMetrics');
+      if (metrics) metrics.innerHTML = renderMetricsTable(targets);
+    }
+
+    function legendLabel(item) {
+      const parts = [];
+      parts.push(`idx ${item.index || '-'}`);
+      if (item.value_nm !== '') parts.push(`${fmt(item.value_nm)} nm`);
+      if (item.min_wavelength_nm !== '') parts.push(`min@${fmt(item.min_wavelength_nm, 1)} nm`);
+      if (item.unconverged) parts.push('T>1');
+      return parts.join(' · ');
+    }
+
+    function paramText(item, limit = 4) {
+      const params = item?.params || {};
+      const entries = Object.entries(params)
+        .filter(([key, value]) => value !== undefined && value !== null && value !== '')
+        .slice(0, limit)
+        .map(([key, value]) => `${key}=${fmt(value, 4)}`);
+      return entries.join(' · ');
+    }
+
+    function renderMetricsTable(items) {
+      if (!items.length) return '';
+      return `
+        <table>
+          <thead>
+            <tr>
+              <th>名称</th><th>value_nm</th><th>min_T</th><th>min_lambda_nm</th><th>max_T</th><th>max_lambda_nm</th><th>状态</th><th>参数</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(i => `
+              <tr class="${i.unconverged ? 'unconverged' : ''}">
+                <td>${escapeHtml(i.name)}</td>
+                <td>${fmt(i.value_nm)}</td>
+                <td>${fmt(i.min_abs2, 6)}</td>
+                <td>${fmt(i.min_wavelength_nm, 3)}</td>
+                <td>${fmt(i.max_abs2, 6)}</td>
+                <td>${fmt(i.max_wavelength_nm, 3)}</td>
+                <td>${i.unconverged ? '不收敛 T>1' : 'ok'}</td>
+                <td>${escapeHtml(paramText(i, 8))}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function countBadItems(run) {
+      return (run.items || []).filter(item => item.unconverged).length;
+    }
+
+    function pathSegments(run) {
+      return (run.relative_path || '').split(/[\\/]+/).filter(Boolean);
+    }
+
+    function simpleRunName(run) {
+      const parts = pathSegments(run);
+      const runName = run.name || parts[parts.length - 1] || 'run';
+      const mode = runName.includes('preview') ? 'preview' : runName.includes('test') ? 'test' : runName.includes('full') ? 'full' : 'run';
+      return `${mode} / ${run.perturbation || parts[parts.length - 2] || '未标注扰动'}`;
+    }
+
+    function compactRunLabel(run) {
+      const parts = pathSegments(run);
+      const structure = parts.slice(0, Math.max(0, parts.indexOf('results'))).join(' / ') || parts.slice(0, 2).join(' / ');
+      const bad = countBadItems(run);
+      const suffix = bad ? ` / ${bad} 条不收敛` : ` / ${run.count || 0} 条`;
+      return `${structure || '结构'} / ${run.perturbation || '扰动'}${suffix}`;
+    }
+
+    function shortItemName(item) {
+      if (!item) return '-';
+      const params = paramText(item, 3);
+      return `idx ${item.index || '-'} / value ${fmt(item.value_nm)} nm${params ? ` / ${params}` : ''}`;
+    }
+
+    function bindRunButtonsInMain() {
+      document.querySelectorAll('#main [data-run]').forEach(btn => {
+        btn.addEventListener('click', () => selectRun(btn.dataset.run));
+      });
+    }
+
+
+
+    async function markViewed(id) {
+      try { await fetch(`/api/mark-viewed?id=${encodeURIComponent(id)}`, { method: 'POST' }); } catch (err) { console.warn(err); }
+    }
+
+    async function pollBatchJob(jobId, button, doneText) {
+      const res = await fetch(`/api/job?id=${encodeURIComponent(jobId)}`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'job failed');
+      updateJobStrip(data);
+      if (button) button.textContent = data.running ? '\u540e\u53f0\u5904\u7406\u4e2d...' : doneText;
+      if (data.running) {
+        setTimeout(() => pollBatchJob(jobId, button, doneText).catch(err => alert(err.message)), 900);
+        return;
+      }
+      const result = data.result || {};
+      const moved = (result.moved || []).length;
+      const deleted = (result.deleted || []).length;
+      const skipped = (result.skipped || []).length;
+      if (button) button.disabled = false;
+      updateJobStrip({ running: false, progress: 100, current_title: doneText || '后台任务完成', returncode: data.returncode });
+      await scan();
+      alert(`\u540e\u53f0\u4efb\u52a1\u5b8c\u6210\uff1a\u79fb\u52a8 ${moved}\uff0c\u5220\u9664 ${deleted}\uff0c\u8df3\u8fc7 ${skipped}\u3002${skipped ? '\n\u6709\u6587\u4ef6\u88ab\u5360\u7528\u65f6\uff0c\u5148\u5173\u95ed Excel/FDTD \u6216\u7b49\u670d\u52a1\u8bfb\u53d6\u5b8c\u518d\u91cd\u8bd5\u3002' : ''}`);
+    }
+
+    async function moveUnconverged() {
+      const button = document.activeElement?.matches?.('button') ? document.activeElement : $('moveBadBtn');
+      const runIds = state.runs.filter(run => countBadItems(run) > 0).map(run => run.id);
+      if (!runIds.length) return alert('\u5f53\u524d\u6ca1\u6709\u9700\u8981\u79fb\u52a8\u7684\u4e0d\u6536\u655b run\u3002');
+      if (!confirm(`\u5c06 ${runIds.length} \u4e2a\u542b\u4e0d\u6536\u655b\u8c31\u7ebf\u7684 run \u6587\u4ef6\u5939\u79fb\u52a8\u5230\u201c\u4e0d\u6536\u655b\u7ed3\u679c\u201d\uff1f`)) return;
+      if (button) {
+        button.disabled = true;
+        button.textContent = '\u5df2\u52a0\u5165\u961f\u5217';
+      }
+      const res = await fetch('/api/move-unconverged', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ run_ids: runIds }) });
+      const data = await res.json();
+      if (!data.ok) { if (button) { button.disabled = false; button.textContent = '\u79fb\u52a8\u4e0d\u6536\u655b'; } return alert(`\u64cd\u4f5c\u5931\u8d25\uff1a${data.error}`); }
+      pollBatchJob(data.job_id, button, '\u79fb\u52a8\u5b8c\u6210').catch(err => { if (button) button.disabled = false; alert(err.message); });
+    }
+
+    async function deleteRunsByViewState(viewed) {
+      const button = document.activeElement?.matches?.('button') ? document.activeElement : (viewed ? $('deleteViewedBtn') : $('deleteUnviewedBtn'));
+      const label = viewed ? '\u5df2\u770b\u8fc7' : '\u672a\u770b\u8fc7';
+      const runIds = state.runs.filter(run => Boolean(run.viewed) === viewed).map(run => run.id);
+      if (!runIds.length) return alert(`\u5f53\u524d\u6ca1\u6709${label}\u7684 run\u3002`);
+      if (!confirm(`\u786e\u5b9a\u5220\u9664 ${runIds.length} \u4e2a${label}\u7684 run \u6587\u4ef6\u5939\u5230\u56de\u6536\u7ad9\uff1f`)) return;
+      if (button) {
+        button.disabled = true;
+        button.textContent = '\u5df2\u52a0\u5165\u961f\u5217';
+      }
+      const res = await fetch('/api/delete-runs-by-view-state', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ viewed, run_ids: runIds }) });
+      const data = await res.json();
+      if (!data.ok) { if (button) { button.disabled = false; button.textContent = viewed ? '\u5220\u9664\u5df2\u770b' : '\u5220\u9664\u672a\u770b'; } return alert(`\u64cd\u4f5c\u5931\u8d25\uff1a${data.error}`); }
+      pollBatchJob(data.job_id, button, '\u5220\u9664\u5b8c\u6210').catch(err => { if (button) button.disabled = false; alert(err.message); });
+    }
+
+    async function deleteCurrentItem(item) {
+      if (!item) return;
+      if (!confirm(`\u5220\u9664\u5f53\u524d\u56fe\u7247/Excel\u7ed3\u679c\u5230\u56de\u6536\u7ad9\uff1f\n\n${item.name}`)) return;
+      const res = await fetch('/api/delete-item', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ png_id: item.png_id, xlsx_id: item.xlsx_id }) });
+      const data = await res.json();
+      if (!data.ok) return alert(`\u64cd\u4f5c\u5931\u8d25\uff1a${data.error}`);
+      await scan();
+    }
+
+    function openRunner(kind, id, title) {
+      const drawer = $('runnerDrawer');
+      const wasOpenSameController = drawer?.classList.contains('open') && state.runner.kind === 'controller' && kind === 'controller';
+      if (wasOpenSameController && state.runner.params) {
+        persistRunnerForm();
+        setActiveNav('controller');
+        renderRunnerForm();
+        return;
+      }
+      const draftKey = kind === 'controller' ? 'controller' : `${kind}:${id || ''}`;
+      const draft = state.runnerDrafts[draftKey] || {};
+      state.runner = { kind, id, title, params: null, scripts: [], form: draft.form || {}, jobId: '', timer: null, step: draft.step || 1, logCursor: 0, logLines: [], latestJob: null, logExpanded: false, logAutoScroll: true };
+      setActiveNav(kind === 'controller' ? 'controller' : 'run');
+      $('runnerForm').innerHTML = '<div class="runner-skeleton"><span></span><span></span><span></span></div>';
+      $('runnerTitle').textContent = title;
+      $('runnerStart').textContent = '\u542f\u52a8';
+      $('runnerStartMissing').style.display = kind === 'controller' ? '' : 'none';
+      $('runnerStatus').textContent = 'loading';
+      $('runnerLog').textContent = '\u8bfb\u53d6\u53c2\u6570\u4e2d...';
+      $('runnerDrawer').classList.add('open');
+      loadRunnerParams();
+    }
+
+    async function loadRunnerParams() {
+      const r = state.runner;
+      const url = r.kind === 'controller' ? '/api/controller-params' : `/api/script-params?id=${encodeURIComponent(r.id)}`;
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'params failed');
+        r.params = data.params || {};
+        r.scripts = data.scripts || [];
+        renderRunnerForm();
+        $('runnerStatus').textContent = 'ready';
+        $('runnerLog').textContent = '\u53ef\u76f4\u63a5\u542f\u52a8\uff0c\u7559\u7a7a\u5219\u4f7f\u7528\u811a\u672c\u9ed8\u8ba4\u503c\u3002';
+      } catch (err) {
+        $('runnerStatus').textContent = 'error';
+        $('runnerLog').textContent = String(err.message || err);
+      }
+    }
+
+    function renderRunnerForm() {
+      const r = state.runner;
+      const params = r.params || {};
+      const scan = (params.scan || [])[0] || null;
+      const runtime = params.runtime || {};
+      const wizardStep = r.kind === 'controller' ? Math.max(1, Math.min(3, Number(r.step || 1))) : 1;
+      const form = r.form || {};
+      const valueOf = (name, fallback = '') => escapeHtml(form.fields?.[name] ?? fallback);
+      const checkedOf = (name) => form.fields?.[name] ? 'checked' : '';
+      const selectedOf = (name, value, fallback = '') => String(form.fields?.[name] ?? fallback) === String(value) ? 'selected' : '';
+      const stepperHtml = r.kind === 'controller' ? `
+        <div class="runner-stepper">
+          <button type="button" class="runner-step ${wizardStep === 1 ? 'active' : ''}" data-runner-step="1"><b>1 选择结构</b><span>输入编号或搜索后勾选，也可以一键选择缺结果脚本。</span></button>
+          <button type="button" class="runner-step ${wizardStep === 2 ? 'active' : ''}" data-runner-step="2"><b>2 调整参数</b><span>展开脚本卡片，修改 start / end / step / runtime。</span></button>
+          <button type="button" class="runner-step ${wizardStep === 3 ? 'active' : ''}" data-runner-step="3"><b>3 启动观察</b><span>确认后启动，黑色终端实时显示真实输出。</span></button>
+        </div>
+      ` : '';
+      const controllerStepOne = r.kind === 'controller' && wizardStep === 1 ? `
+        <div class="runner-hint">按“大类 / 母结构 / 扰动脚本”分层启动。每个脚本卡片都有自己的 start、end、step；网页填写的 step 会覆盖本次启动参数，不会修改源脚本。</div>
+        <label class="runner-field wide">搜索结构或扰动<input data-runner-field="controllerSearch" value="${valueOf('controllerSearch')}" placeholder="例如 C2、双圆盘、半径差、三裂缝环"></label>
+        <label class="runner-field wide">已选脚本编号<input data-runner-field="ids" value="${valueOf('ids')}" placeholder="默认不选择；可勾选下方脚本或填写 1,3,5-8"></label>
+        <label class="runner-field wide"><span><input type="checkbox" data-runner-field="missingOnly" ${checkedOf('missingOnly')}> 只运行没有最新 full 结果的脚本</span></label>
+        ${renderControllerScriptPicker()}
+        <label class="runner-field">模式<select data-runner-field="mode"><option value="full" ${selectedOf('mode', 'full', 'full')}>full</option><option value="test" ${selectedOf('mode', 'test', 'full')}>test</option><option value="preview" ${selectedOf('mode', 'preview', 'full')}>preview</option></select></label>
+        <label class="runner-field">方式<select data-runner-field="style"><option value="sequential" ${selectedOf('style', 'sequential', 'sequential')}>sequential</option><option value="parallel" ${selectedOf('style', 'parallel', 'sequential')}>parallel</option></select></label>
+        <label class="runner-field">默认显示单位<select data-runner-field="unit"><option value="NM" ${selectedOf('unit', 'NM', 'NM')}>nm</option><option value="DEG" ${selectedOf('unit', 'DEG', 'NM')}>&#176;</option></select></label>
+        <label class="runner-field">最大并行数<input data-runner-field="maxParallel" type="number" min="1" step="1" value="${valueOf('maxParallel', '1')}"></label>
+        <label class="runner-field">单脚本超时(s)<input data-runner-field="childTimeoutS" type="number" min="0" step="60" value="${valueOf('childTimeoutS', '3600')}"></label>
+      ` : '';
+      const controllerStepTwo = r.kind === 'controller' && wizardStep === 2 ? `
+        <div class="runner-hint">这一页只修改本次网页启动的覆盖参数。红色字段表示该脚本已有不收敛结果；鼠标悬停可查看最近最大透射谱 maxT。</div>
+        <label class="runner-field">全局 SIMULATION_TIME_FS<input data-override="SIMULATION_TIME_FS" value="${escapeHtml(form.overrides?.SIMULATION_TIME_FS ?? '')}" placeholder="10000"></label>
+        <label class="runner-field">全局 AUTO_SHUTOFF_MIN<input data-override="AUTO_SHUTOFF_MIN" value="${escapeHtml(form.overrides?.AUTO_SHUTOFF_MIN ?? '')}" placeholder="留空不覆盖"></label>
+        <label class="runner-field">全局 MESH_ACCURACY<input data-override="MESH_ACCURACY" value="${escapeHtml(form.overrides?.MESH_ACCURACY ?? '')}" placeholder="2"></label>
+        <label class="runner-field">全局 DT_STABILITY_FACTOR<input data-override="DT_STABILITY_FACTOR" value="${escapeHtml(form.overrides?.DT_STABILITY_FACTOR ?? '')}" placeholder="0.8"></label>
+      ` : '';
+      const controllerStepThree = r.kind === 'controller' && wizardStep === 3 ? renderControllerLaunchSummary() : '';
+      const controllerActions = r.kind === 'controller' ? `
+        <div class="runner-wizard-actions">
+          <button type="button" class="mini-btn" data-runner-prev ${wizardStep <= 1 ? 'disabled' : ''}>上一步</button>
+          <span class="pill">第 ${wizardStep} / 3 步</span>
+          ${wizardStep < 3
+            ? '<button type="button" class="mini-btn primary-mini" data-runner-next>下一步</button>'
+            : '<button type="button" class="mini-btn primary-mini" data-runner-launch>确认启动</button>'}
+        </div>
+      ` : '';
+      const controllerFields = r.kind === 'controller' ? `${stepperHtml}${controllerStepOne}${controllerStepTwo}${controllerStepThree}${controllerActions}` : '';
+      $('runnerForm').innerHTML = `
+        ${controllerFields}
+        ${r.kind !== 'controller' ? `<label class="runner-field">模式<select data-runner-field="mode"><option value="full">full</option><option value="test">test</option><option value="preview">preview</option></select></label>` : ''}
+        ${r.kind !== 'controller' && scan ? `<label class="runner-field">start (${displayScanUnit(scan.unit)})<input data-override="${escapeHtml(scan.start_key)}" value="${escapeHtml(formatScanWithUnit(scan.start, scan.unit))}"></label>
+          <label class="runner-field">end (${displayScanUnit(scan.unit)})<input data-override="${escapeHtml(scan.end_key)}" value="${escapeHtml(formatScanWithUnit(scan.end, scan.unit))}"></label>
+          <label class="runner-field">step (${displayScanUnit(scan.unit)})<input data-override="${escapeHtml(scan.step_key)}" value="${escapeHtml(formatScanWithUnit(scan.step, scan.unit))}"></label>` : r.kind !== 'controller' ? '<div class="runner-field wide">未识别到标准 start/end/step，仍可按默认参数启动。</div>' : ''}
+        ${r.kind !== 'controller' ? Object.entries(runtime).map(([key, value]) => `<label class="runner-field ${key === 'SIMULATION_TIME_S' ? '' : ''}">${escapeHtml(key)}<input data-override="${escapeHtml(key)}" value="${escapeHtml(value)}"></label>`).join('') : ''}
+        ${r.kind === 'controller' && wizardStep === 2 ? `<div class="runner-field wide" id="runnerPreview">${renderControllerPreview()}</div>` : ''}
+        ${r.kind !== 'controller' ? `<div class="runner-field wide" id="runnerPreview">${runnerPreviewText(scan)}</div>` : ''}
+      `;
+      document.querySelectorAll('[data-override], [data-runner-field="unit"], [data-runner-field="ids"], [data-runner-field="controllerSearch"], [data-runner-field="missingOnly"], [data-runner-field="maxParallel"], [data-runner-field="childTimeoutS"]').forEach(input => input.addEventListener('input', updateRunnerPreview));
+      document.querySelectorAll('[data-runner-field="unit"], [data-runner-field="missingOnly"]').forEach(input => input.addEventListener('change', updateRunnerPreview));
+      bindRunnerGroupSelection();
+      bindControllerScriptPicker();
+      bindRunnerWizardControls();
+    }
+
+    function updateRunnerPreview() {
+      persistRunnerForm();
+      const preview = $('runnerPreview');
+      if (!preview) return;
+      if (state.runner.kind === 'controller') preview.innerHTML = renderControllerPreview();
+      else preview.textContent = runnerPreviewText(currentRunnerScan());
+      bindRunnerGroupSelection();
+    }
+
+    function collectRunnerFormValues() {
+      const base = state.runner.form || {};
+      const fields = { ...(base.fields || {}) };
+      const overrides = { ...(base.overrides || {}) };
+      const perScript = { ...(base.perScript || {}) };
+      document.querySelectorAll('[data-runner-field]').forEach(input => {
+        const key = input.dataset.runnerField;
+        fields[key] = input.type === 'checkbox' ? input.checked : input.value;
+      });
+      document.querySelectorAll('[data-override]').forEach(input => {
+        overrides[input.dataset.override] = input.value;
+      });
+      document.querySelectorAll('[data-controller-script][data-controller-part]').forEach(input => {
+        const id = input.dataset.controllerScript;
+        perScript[id] = perScript[id] || {};
+        perScript[id][input.dataset.controllerPart] = input.value;
+      });
+      document.querySelectorAll('[data-controller-script][data-controller-runtime]').forEach(input => {
+        const id = input.dataset.controllerScript;
+        perScript[id] = perScript[id] || {};
+        perScript[id][`runtime:${input.dataset.controllerRuntime}`] = input.value;
+      });
+      return { fields, overrides, perScript };
+    }
+
+    function persistRunnerForm() {
+      if (!state.runner) return;
+      state.runner.form = collectRunnerFormValues();
+      const key = state.runner.kind === 'controller' ? 'controller' : `${state.runner.kind}:${state.runner.id || ''}`;
+      state.runnerDrafts[key] = {
+        form: state.runner.form,
+        step: state.runner.step || 1,
+      };
+    }
+
+    function runnerFieldValue(name, fallback = '') {
+      const input = document.querySelector(`[data-runner-field="${CSS.escape(name)}"]`);
+      if (input) return input.type === 'checkbox' ? input.checked : input.value;
+      const fields = state.runner.form?.fields || {};
+      return Object.prototype.hasOwnProperty.call(fields, name) ? fields[name] : fallback;
+    }
+
+    function runnerFieldChecked(name) {
+      return Boolean(runnerFieldValue(name, false));
+    }
+
+    function setRunnerStep(step) {
+      persistRunnerForm();
+      state.runner.step = Math.max(1, Math.min(3, Number(step) || 1));
+      persistRunnerForm();
+      renderRunnerForm();
+    }
+
+    function bindRunnerWizardControls() {
+      document.querySelectorAll('[data-runner-step]').forEach(btn => {
+        btn.addEventListener('click', () => setRunnerStep(btn.dataset.runnerStep));
+      });
+      document.querySelector('[data-runner-prev]')?.addEventListener('click', () => setRunnerStep((state.runner.step || 1) - 1));
+      document.querySelector('[data-runner-next]')?.addEventListener('click', () => setRunnerStep((state.runner.step || 1) + 1));
+      document.querySelector('[data-runner-launch]')?.addEventListener('click', () => startRunnerJob(false));
+    }
+
+    function currentRunnerScan() {
+      const scan = (state.runner.params?.scan || [])[0] || null;
+      if (!scan) return null;
+      const read = key => document.querySelector(`[data-override="${CSS.escape(key)}"]`)?.value;
+      return { ...scan, start: read(scan.start_key), end: read(scan.end_key), step: read(scan.step_key) };
+    }
+
+    function runnerPreviewText(scan) {
+      if (!scan) return '使用脚本默认扫描点。';
+      const a = parseDisplayValue(scan.start), b = parseDisplayValue(scan.end), step = parseDisplayValue(scan.step);
+      if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(step) || step <= 0) return '请输入有效的 start/end/step。';
+      const count = Math.floor(Math.abs(b - a) / step) + 1 + ((Math.abs(b - a) % step) > step * 1e-6 ? 1 : 0);
+      return `预计约 ${count} 个扫描点：${formatScanWithUnit(a, scan.unit)} -> ${formatScanWithUnit(b, scan.unit)}，步长 ${formatScanWithUnit(step, scan.unit)}。`;
+    }
+
+    function runnerOverrides() {
+      if (state.runner.kind === 'controller') {
+        return controllerOverridesByScript(controllerRuntimeInputs());
+      }
+      const overrides = {};
+      const scan = (state.runner.params?.scan || [])[0] || null;
+      document.querySelectorAll('[data-override]').forEach(input => {
+        if (input.value === '') return;
+        const key = input.dataset.override;
+        if (state.runner.kind !== 'controller' && scan && [scan.start_key, scan.end_key, scan.step_key].includes(key)) {
+          overrides[key] = inputToScriptUnit(input.value, scan.unit);
+          if (key === scan.step_key) addManualStepOverrides({ params: state.runner.params || {} }, overrides, input.value);
+        } else {
+          overrides[key] = parseDisplayValue(input.value);
+        }
+      });
+      return overrides;
+    }
+
+    function parseControllerIdSet(text) {
+      const wanted = new Set();
+      const raw = String(text || '').trim().toLowerCase();
+      if (['none', 'null', 'empty', '无', '空', '清空'].includes(raw)) return wanted;
+      String(text || '').replace(/\uFF0C/g, ',').split(',').forEach(part => {
+        part = part.trim();
+        if (!part) return;
+        if (part.includes('-')) {
+          let [a, b] = part.split('-', 2).map(v => Number(v.trim()));
+          if (Number.isFinite(a) && Number.isFinite(b)) {
+            if (a > b) [a, b] = [b, a];
+            for (let i = a; i <= b; i++) wanted.add(i);
+          }
+        } else {
+          const n = Number(part);
+          if (Number.isFinite(n)) wanted.add(n);
+        }
+      });
+      return wanted;
+    }
+
+    function idsFromSet(set) {
+      const ids = [...set].map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+      return ids.length ? ids.join(',') : 'none';
+    }
+
+    function filteredControllerScripts(forceMissingOnly = false) {
+      const scripts = state.runner.scripts || [];
+      const keyword = String(runnerFieldValue('controllerSearch', '') || '').trim().toLowerCase();
+      const missingOnly = forceMissingOnly || runnerFieldChecked('missingOnly');
+      let selected = scripts;
+      if (keyword) {
+        const tokens = keyword.split(/\s+/).filter(Boolean);
+        selected = selected.filter(script => {
+          const text = `${script.category || ''} ${script.structure || ''} ${script.perturbation || ''} ${script.name || ''}`.toLowerCase();
+          return tokens.every(token => text.includes(token));
+        });
+      }
+      if (missingOnly) selected = selected.filter(script => !script.has_latest_run);
+      return selected.sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
+    }
+
+    function selectedControllerScripts(forceMissingOnly = false) {
+      const idsText = runnerFieldValue('ids', '') || '';
+      const selected = filteredControllerScripts(forceMissingOnly);
+      if (!idsText.trim()) return [];
+      const wanted = parseControllerIdSet(idsText);
+      return selected.filter(script => wanted.has(Number(script.id)));
+    }
+
+    function renderControllerScriptPicker() {
+      const visible = filteredControllerScripts(false);
+      const idsText = String(runnerFieldValue('ids', '') || '').trim();
+      const selectedIds = idsText ? parseControllerIdSet(idsText) : new Set();
+      const selectedCount = visible.filter(script => selectedIds.has(Number(script.id))).length;
+      const grouped = groupScriptsForRunner(visible);
+      const autoOpen = visible.length <= 24;
+      const groupsHtml = grouped.map(category => `
+        <details class="runner-group" ${autoOpen ? 'open' : ''}>
+          <summary><span>${escapeHtml(category.category)}</span><span class="pill">${category.count} 个脚本</span></summary>
+          <div class="runner-group-body">
+            ${category.structures.map(structure => `
+              <details class="runner-subgroup" ${autoOpen ? 'open' : ''}>
+                <summary><span>${escapeHtml(structure.structure)}</span><span class="pill">${structure.scripts.length} 个扰动</span></summary>
+                <div class="runner-group-body">
+                  ${structure.scripts.map(script => {
+                    const checked = selectedIds.has(Number(script.id)) ? 'checked' : '';
+                    const cls = `${script.has_latest_run ? '' : 'missing'} ${script.unconverged ? 'bad' : ''}`;
+                    const maxT = script.latest_max_abs2 === null || script.latest_max_abs2 === undefined ? '' : ` · maxT ${fmt(script.latest_max_abs2, 4)}`;
+                    return `
+                      <label class="script-pick-row ${cls}">
+                        <input type="checkbox" data-controller-pick="${script.id}" ${checked}>
+                        <span><strong>[${String(script.id).padStart(3, '0')}] ${escapeHtml(script.perturbation || script.name || '')}</strong><br><span class="param-line">${script.has_latest_run ? `full ${escapeHtml(script.latest_count ?? 0)}` : '缺最新 full'}${escapeHtml(maxT)}</span></span>
+                        <span class="pill">${escapeHtml(script.params?.scan?.[0]?.unit || '-')}</span>
+                      </label>`;
+                  }).join('')}
+                </div>
+              </details>
+            `).join('')}
+          </div>
+        </details>
+      `).join('');
+      return `
+        <div class="script-picker">
+          <div class="script-picker-head">
+            <span class="param-line">当前筛选 ${visible.length} 个扰动，已勾选 ${selectedCount} 个。进入第二步后只显示已勾选的脚本。</span>
+            <span class="mini-actions">
+              <button type="button" class="mini-btn" data-picker-select="visible">全选当前</button>
+              <button type="button" class="mini-btn" data-picker-select="missing">只选缺结果</button>
+              <button type="button" class="mini-btn" data-picker-select="clear">取消全选</button>
+              <button type="button" class="mini-btn" data-picker-select="invert">反选</button>
+            </span>
+          </div>
+          <div class="preview-list compact-preview">${groupsHtml || '<div class="manager-empty">没有匹配的扰动脚本。</div>'}</div>
+        </div>`;
+    }
+
+    function bindControllerScriptPicker() {
+      const idsInput = document.querySelector('[data-runner-field="ids"]');
+      const writeIds = ids => {
+        if (idsInput) idsInput.value = idsFromSet(ids);
+        persistRunnerForm();
+      };
+      document.querySelectorAll('[data-controller-pick]').forEach(box => {
+        box.addEventListener('change', () => {
+          const currentText = String(idsInput?.value || '').trim();
+          const base = currentText ? parseControllerIdSet(currentText) : new Set();
+          const id = Number(box.dataset.controllerPick);
+          if (box.checked) base.add(id);
+          else base.delete(id);
+          writeIds(base);
+        });
+      });
+      document.querySelectorAll('[data-picker-select]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const action = btn.dataset.pickerSelect;
+          let ids = new Set();
+          if (action === 'visible') ids = new Set(filteredControllerScripts(false).map(script => Number(script.id)));
+          if (action === 'missing') ids = new Set(filteredControllerScripts(false).filter(script => !script.has_latest_run).map(script => Number(script.id)));
+          if (action === 'invert') {
+            const currentText = String(idsInput?.value || '').trim();
+            const current = currentText ? parseControllerIdSet(currentText) : new Set();
+            ids = new Set(filteredControllerScripts(false).map(script => Number(script.id)).filter(id => !current.has(id)));
+          }
+          writeIds(ids);
+          renderRunnerForm();
+        });
+      });
+    }
+
+    function controllerLaunchIds(forceMissingOnly = false) {
+      const explicit = String(runnerFieldValue('ids', '') || '').trim();
+      if (['none', 'null', 'empty', '无', '空', '清空'].includes(explicit.toLowerCase())) return '';
+      if (explicit) return explicit;
+      return '';
+    }
+
+    function controllerScanInputs() {
+      return {
+        unit: runnerFieldValue('unit', 'NM') || 'NM',
+        start: '',
+        end: '',
+        step: '',
+      };
+    }
+
+    function controllerRuntimeInputs() {
+      const runtime = { ...(state.runner.form?.overrides || {}) };
+      document.querySelectorAll('[data-override]').forEach(input => {
+        if (input.value !== '') runtime[input.dataset.override] = parseDisplayValue(input.value);
+      });
+      Object.entries(runtime).forEach(([key, value]) => {
+        if (value === '') delete runtime[key];
+        else runtime[key] = parseDisplayValue(value);
+      });
+      return runtime;
+    }
+
+    function displayScanValue(value, unit) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return value ?? '-';
+      if (unit === 'M') return fmt(n * 1e9, 6);
+      return fmt(n, 6);
+    }
+
+    function formatScanWithUnit(value, unit) {
+      const shown = displayScanValue(value, unit);
+      if (shown === '-' || shown === '') return shown;
+      return `${shown}${displayScanUnit(unit)}`;
+    }
+
+    function displayScanUnit(unit) {
+      if (unit === 'RAW') return '';
+      return unit === 'DEG' ? '\u00b0' : 'nm';
+    }
+
+    function parseDisplayValue(value) {
+      if (typeof value === 'number') return value;
+      const text = String(value ?? '').trim().replace('°', '').replace(/nm/ig, '').replace(/\s+/g, '');
+      if (!text) return NaN;
+      return Number(text);
+    }
+
+    function inputToScriptUnit(value, scriptUnit) {
+      const n = parseDisplayValue(value);
+      if (!Number.isFinite(n)) return value;
+      if (scriptUnit === 'M') return n * 1e-9;
+      return n;
+    }
+
+    function stepInputToKeyUnit(value, targetUnit) {
+      const n = parseDisplayValue(value);
+      if (!Number.isFinite(n)) return value;
+      if (targetUnit === 'M') return n * 1e-9;
+      return n;
+    }
+
+    function addManualStepOverrides(script, repl, stepText) {
+      const values = script?.params?.values || {};
+      Object.entries(values).forEach(([key, current]) => {
+        if (/^AUTO(?:_[A-Z0-9]+)*_STEP$/.test(key)) {
+          repl[key] = false;
+          return;
+        }
+        const m = key.match(/^(?:(?:AUTO_)?STEP|[A-Z0-9_]+_STEP)_(MIN|MAX)_(NM|M|DEG)$/);
+        if (m) {
+          const unit = key.endsWith('_M') ? 'M' : key.endsWith('_DEG') ? 'DEG' : 'NM';
+          repl[key] = stepInputToKeyUnit(stepText, unit);
+        }
+      });
+    }
+
+    function scanGroupForInput(script, inputUnit) {
+      const groups = ((script.params || {}).scan || []);
+      if (inputUnit === 'DEG') return groups.find(group => group.unit === 'DEG') || null;
+      return groups.find(group => group.unit === 'NM') || groups.find(group => group.unit === 'M') || null;
+    }
+
+    function controllerGlobalScanValues() {
+      const scanInput = controllerScanInputs();
+      return { start: scanInput.start, end: scanInput.end, step: scanInput.step };
+    }
+
+    function existingPerScriptInputs() {
+      const data = JSON.parse(JSON.stringify(state.runner.form?.perScript || {}));
+      document.querySelectorAll('[data-controller-script][data-controller-part]').forEach(input => {
+        const id = input.dataset.controllerScript;
+        data[id] = data[id] || {};
+        data[id][input.dataset.controllerPart] = input.value;
+      });
+      document.querySelectorAll('[data-controller-script][data-controller-runtime]').forEach(input => {
+        const id = input.dataset.controllerScript;
+        data[id] = data[id] || {};
+        data[id][`runtime:${input.dataset.controllerRuntime}`] = input.value;
+      });
+      return data;
+    }
+
+    function controllerOverridesByScript(runtimeOverrides = {}) {
+      const scanInput = controllerScanInputs();
+      const perScript = {};
+      const allInputs = existingPerScriptInputs();
+      selectedControllerScripts().forEach(script => {
+        const repl = { ...runtimeOverrides };
+        const scan = scanGroupForInput(script, scanInput.unit);
+        if (scan) {
+          const read = part => allInputs[String(script.id)]?.[part] ?? '';
+          const start = read('start');
+          const end = read('end');
+          const step = read('step');
+          if (start !== '') repl[scan.start_key] = inputToScriptUnit(start, scan.unit);
+          if (end !== '') repl[scan.end_key] = inputToScriptUnit(end, scan.unit);
+          if (step !== '') {
+            repl[scan.step_key] = inputToScriptUnit(step, scan.unit);
+            addManualStepOverrides(script, repl, step);
+          }
+        }
+        Object.entries(allInputs[String(script.id)] || {}).forEach(([key, value]) => {
+          if (!key.startsWith('runtime:') || value === '') return;
+          repl[key.slice('runtime:'.length)] = parseDisplayValue(value);
+        });
+        if (Object.keys(repl).length) perScript[script.script] = repl;
+      });
+      if (Object.keys(runtimeOverrides || {}).length) perScript['*'] = { ...runtimeOverrides };
+      return perScript;
+    }
+
+    function renderControllerLaunchSummary() {
+      const scripts = selectedControllerScripts();
+      const mode = runnerFieldValue('mode', 'full');
+      const style = runnerFieldValue('style', 'sequential');
+      const maxParallel = runnerFieldValue('maxParallel', '1');
+      const idsText = controllerLaunchIds(false) || '未选择';
+      const missingCount = scripts.filter(script => !script.has_latest_run).length;
+      const badCount = scripts.filter(script => script.unconverged).length;
+      const preview = scripts.slice(0, 12).map(script => `
+        <div class="manager-row">
+          <span class="pill">[${String(script.id).padStart(3, '0')}]</span>
+          <span><strong>${escapeHtml(script.perturbation || script.name || '')}</strong><br><span class="param-line">${escapeHtml(script.category || '')} / ${escapeHtml(script.structure || '')}</span></span>
+          <span class="pill">${script.has_latest_run ? '已有 full' : '缺 full'}</span>
+        </div>
+      `).join('');
+      return `
+        <div class="runner-hint">确认后会按当前缓存参数启动。若要再改步长或不收敛阈值，返回第二步即可；这里不会清空前面填写过的内容。</div>
+        <div class="runner-field wide manager-summary">
+          <div class="summary-card"><b>${scripts.length}</b><span>将启动脚本</span></div>
+          <div class="summary-card"><b>${missingCount}</b><span>缺最新 full</span></div>
+          <div class="summary-card bad"><b>${badCount}</b><span>已有不收敛记录</span></div>
+          <div class="summary-card"><b>${escapeHtml(mode)}</b><span>${escapeHtml(style)} · 并行 ${escapeHtml(maxParallel)} 路 · ids ${escapeHtml(idsText)}</span></div>
+        </div>
+        <div class="manager-list">${preview || '<div class="manager-empty">没有匹配脚本，请回到第一步调整筛选条件。</div>'}${scripts.length > 12 ? `<div class="manager-empty">其余 ${scripts.length - 12} 个脚本会一起执行。</div>` : ''}</div>
+      `;
+    }
+
+    function renderControllerPreview() {
+      const scripts = selectedControllerScripts();
+      const scanInput = controllerScanInputs();
+      const runtime = controllerRuntimeInputs();
+      const previous = existingPerScriptInputs();
+      const grouped = groupScriptsForRunner(scripts);
+      const missingCount = scripts.filter(script => !script.has_latest_run).length;
+      const autoOpen = scripts.length > 0 && scripts.length <= 18;
+      const groupsHtml = grouped.map(category => `
+        <details class="runner-group" ${autoOpen ? 'open' : ''}>
+          <summary><span>${escapeHtml(category.category)}</span><span class="pill">${category.count} 个脚本</span></summary>
+          <div class="runner-group-body">
+            ${category.structures.map(structure => `
+              <details class="runner-subgroup" ${autoOpen ? 'open' : ''}>
+                <summary><span>${escapeHtml(structure.structure)}</span><span class="pill">${structure.scripts.length} 个扰动</span></summary>
+                <div class="runner-group-body">
+                  ${structure.scripts.map(script => renderControllerScriptCard(script, scanInput, runtime, previous)).join('')}
+                </div>
+              </details>
+            `).join('')}
+          </div>
+        </details>
+      `).join('');
+      return `
+        <div class="runner-toolbar">
+          <span class="param-line">将影响 ${scripts.length} 个脚本；其中 ${missingCount} 个没有最新 full 结果。展开后可单独修改每个扰动脚本的 start / end / step。</span>
+          <span class="mini-actions">
+            <button type="button" class="mini-btn" data-runner-open-all>展开全部脚本</button>
+            <button type="button" class="mini-btn" data-runner-close-all>收起全部脚本</button>
+          </span>
+        </div>
+        <div class="preview-list compact-preview">${groupsHtml || '<div class="preview-card">没有匹配脚本，请检查编号。</div>'}</div>`;
+    }
+
+    function groupScriptsForRunner(scripts) {
+      const categories = new Map();
+      for (const script of scripts) {
+        const category = script.category || '未分类';
+        const structure = script.structure || '未标注母结构';
+        if (!categories.has(category)) categories.set(category, new Map());
+        const structures = categories.get(category);
+        if (!structures.has(structure)) structures.set(structure, []);
+        structures.get(structure).push(script);
+      }
+      return [...categories.entries()].map(([category, structures]) => {
+        const children = [...structures.entries()].map(([structure, items]) => ({
+          structure,
+          scripts: items.sort((a, b) => Number(a.id || 0) - Number(b.id || 0))
+        })).sort((a, b) => Math.min(...a.scripts.map(item => Number(item.id || 0))) - Math.min(...b.scripts.map(item => Number(item.id || 0))));
+        return {
+          category,
+          structures: children,
+          count: children.reduce((sum, item) => sum + item.scripts.length, 0)
+        };
+      }).sort((a, b) => Math.min(...a.structures.flatMap(structure => structure.scripts.map(item => Number(item.id || 0)))) - Math.min(...b.structures.flatMap(structure => structure.scripts.map(item => Number(item.id || 0)))));
+    }
+
+    function renderControllerScriptCard(script, scanInput, runtime, previous) {
+      const scan = scanGroupForInput(script, scanInput.unit);
+      const defaults = scan ? {
+        start: formatScanWithUnit(scan.start, scan.unit),
+        end: formatScanWithUnit(scan.end, scan.unit),
+        step: formatScanWithUnit(scan.step, scan.unit),
+        unit: displayScanUnit(scan.unit),
+      } : null;
+      const per = previous[String(script.id)] || {};
+      const valueFor = part => per[part] ?? (defaults ? defaults[part] : '');
+      const rt = { ...((script.params || {}).runtime || {}), ...runtime };
+      const isUnconverged = Boolean(script.unconverged);
+      const maxT = script.latest_max_abs2 === null || script.latest_max_abs2 === undefined ? '-' : fmt(script.latest_max_abs2, 6);
+      const simTimeValue = per['runtime:SIMULATION_TIME_FS'] ?? (rt.SIMULATION_TIME_FS ?? '');
+      const shutoffValue = per['runtime:AUTO_SHUTOFF_MIN'] ?? (rt.AUTO_SHUTOFF_MIN ?? '');
+      const meshValue = per['runtime:MESH_ACCURACY'] ?? (rt.MESH_ACCURACY ?? '');
+      const dtValue = per['runtime:DT_STABILITY_FACTOR'] ?? (rt.DT_STABILITY_FACTOR ?? '');
+      const cardClass = [
+        script.has_latest_run ? '' : 'missing-result',
+        isUnconverged ? 'unconverged-card' : ''
+      ].filter(Boolean).join(' ');
+      return `
+        <div class="preview-card ${cardClass}">
+          <strong>[${String(script.id).padStart(3, '0')}] ${escapeHtml(script.perturbation || script.name || '')}</strong>
+          <span class="param-line">${escapeHtml(script.category || '')} / ${escapeHtml(script.structure || '')}${defaults ? ` · 单位 ${defaults.unit}` : ''}</span>
+          ${defaults ? `<div class="preview-metrics">
+            <label><b>start</b><input data-controller-script="${script.id}" data-controller-part="start" value="${escapeHtml(valueFor('start'))}"></label>
+            <label><b>end</b><input data-controller-script="${script.id}" data-controller-part="end" value="${escapeHtml(valueFor('end'))}"></label>
+            <label><b>step</b><input data-controller-script="${script.id}" data-controller-part="step" value="${escapeHtml(valueFor('step'))}"></label>
+          </div>` : '<span class="param-line">无匹配扫描组，仍可按脚本默认参数启动。</span>'}
+          <div class="preview-metrics">
+            ${isUnconverged
+              ? `<label class="hot-runtime" title="T=${escapeHtml(maxT)}"><b>SIM_FS</b><input title="T=${escapeHtml(maxT)}" data-controller-script="${script.id}" data-controller-runtime="SIMULATION_TIME_FS" value="${escapeHtml(simTimeValue)}" placeholder="10000"></label>
+                 <label class="hot-runtime" title="T=${escapeHtml(maxT)}"><b>SHUTOFF</b><input title="T=${escapeHtml(maxT)}" data-controller-script="${script.id}" data-controller-runtime="AUTO_SHUTOFF_MIN" value="${escapeHtml(shutoffValue)}" placeholder="1e-12"></label>
+                 <label class="hot-runtime" title="T=${escapeHtml(maxT)}"><b>MESH</b><input title="T=${escapeHtml(maxT)}" data-controller-script="${script.id}" data-controller-runtime="MESH_ACCURACY" value="${escapeHtml(meshValue)}" placeholder="2"></label>
+                 <label class="hot-runtime" title="T=${escapeHtml(maxT)}"><b>DT</b><input title="T=${escapeHtml(maxT)}" data-controller-script="${script.id}" data-controller-runtime="DT_STABILITY_FACTOR" value="${escapeHtml(dtValue)}" placeholder="0.8"></label>`
+              : `<span><b>SIM_FS</b><br>${escapeHtml(rt.SIMULATION_TIME_FS ?? '-')}</span>
+                 <span><b>SHUTOFF</b><br>${escapeHtml(rt.AUTO_SHUTOFF_MIN ?? '-')}</span>
+                 <span><b>MESH</b><br>${escapeHtml(rt.MESH_ACCURACY ?? '-')}</span>
+                 <span><b>DT</b><br>${escapeHtml(rt.DT_STABILITY_FACTOR ?? '-')}</span>`}
+            <span><b>结果状态</b><br>${script.has_latest_run ? `full ${escapeHtml(script.latest_count ?? 0)}` : '缺最新 full'}</span>
+          </div>
+        </div>`;
+    }
+
+    function bindRunnerGroupSelection() {
+      document.querySelectorAll('[data-runner-open-all]').forEach(btn => btn.addEventListener('click', () => {
+        document.querySelectorAll('#runnerForm details').forEach(detail => detail.open = true);
+      }));
+      document.querySelectorAll('[data-runner-close-all]').forEach(btn => btn.addEventListener('click', () => {
+        document.querySelectorAll('#runnerForm details').forEach(detail => detail.open = false);
+      }));
+    }
+
+    function updateJobStrip(data = {}) {
+      const strip = $('jobStrip');
+      if (!strip) return;
+      const running = Boolean(data.running);
+      const progress = Math.max(0, Math.min(100, Number(data.progress ?? 0) || 0));
+      const current = data.current_title || data.title || (running ? '正在运行仿真任务' : '当前无运行任务');
+      const detail = data.current_detail || data.last_output || '';
+      const total = Number(data.total || 0);
+      const done = Number(data.current || 0);
+      const elapsed = data.started ? Math.max(0, Date.now() / 1000 - Number(data.started)) : 0;
+      const eta = running && progress > 2 ? Math.max(0, elapsed * (100 - progress) / progress) : 0;
+      const etaText = eta ? ` / 预计剩余 ${formatDuration(eta)}` : '';
+      const suffix = total ? ` (${Math.min(done, total)}/${total})` : '';
+      $('jobCurrent').textContent = running || progress ? `${current}${suffix}${etaText}` : '当前无运行任务';
+      $('jobCurrent').title = detail || current;
+      $('jobPercent').textContent = `${Math.round(progress)}%`;
+      $('jobProgressBar').style.width = `${progress}%`;
+      strip.classList.toggle('idle', !running && !progress);
+      strip.hidden = !running && !progress;
+    }
+
+    function formatDuration(seconds) {
+      const s = Math.max(0, Math.round(Number(seconds) || 0));
+      if (s < 60) return `${s}s`;
+      const m = Math.floor(s / 60);
+      const rest = s % 60;
+      if (m < 60) return `${m}m ${rest}s`;
+      const h = Math.floor(m / 60);
+      return `${h}h ${m % 60}m`;
+    }
+
+    function logClass(line) {
+      const text = String(line || '');
+      if (/\bERR\b|ERROR|Traceback|失败|异常/.test(text)) return 'log-err';
+      if (/警告|warning|WARN/i.test(text)) return 'log-warn';
+      if (/完成|全部完成|manifest|已保存/.test(text)) return 'log-ok';
+      if (/启动|\[\d+\/\d+\]\s*开始|开始仿真/.test(text)) return 'log-start';
+      if (/^=+$|^-+$/.test(text.trim())) return 'log-dim';
+      return 'log-out';
+    }
+
+    function renderRunnerLog(lines) {
+      const log = $('runnerLog');
+      if (!log) return;
+      const list = Array.isArray(lines) && lines.length ? lines : ['??????????...'];
+      const expanded = Boolean(state.runner?.logExpanded);
+      const renderLimit = expanded ? 5000 : 1400;
+      const visible = list.length > renderLimit ? list.slice(-renderLimit) : list;
+      const omitted = list.length > visible.length
+        ? `<span class="log-line log-dim">... ???? ${list.length - visible.length} ????????????????</span>`
+        : '';
+      log.classList.toggle('expanded', expanded);
+      log.innerHTML = omitted + visible.map(line => `<span class="log-line ${logClass(line)}">${escapeHtml(line)}</span>`).join('');
+      if (state.runner?.logAutoScroll !== false) log.scrollTop = log.scrollHeight;
+      const meta = $('runnerOutputMeta');
+      const auto = state.runner?.logAutoScroll === false ? '????' : '????';
+      if (meta) meta.textContent = `${list.length} ? / ?? ${visible.length} ? / ${auto}`;
+      const expandBtn = $('runnerLogExpand');
+      if (expandBtn) expandBtn.textContent = expanded ? '????' : '????';
+      const autoBtn = $('runnerLogAuto');
+      if (autoBtn) {
+        autoBtn.classList.toggle('mode-active', state.runner?.logAutoScroll !== false);
+        autoBtn.setAttribute('aria-pressed', state.runner?.logAutoScroll === false ? 'false' : 'true');
+      }
+    }
+
+    function resetRealtimeConsole(title) {
+      state.runner.logCursor = 0;
+      state.runner.logLines = [];
+      state.runner.latestJob = null;
+      $('cmdTitle').textContent = title || 'FDTD realtime console';
+      $('cmdLog').innerHTML = '';
+      $('cmdProgressText').textContent = '0%';
+      $('cmdStepText').textContent = '0/0';
+      $('cmdPidText').textContent = '-';
+      $('cmdLineText').textContent = '0';
+      $('cmdCurrentText').textContent = '等待启动';
+      $('cmdDetailText').textContent = '实时显示 Python print/stdout/stderr 与最新谱图。';
+      renderTerminalSpectrum(null);
+    }
+
+    function openRealtimeConsole(title) {
+      $('cmdTitle').textContent = title || $('cmdTitle').textContent || 'FDTD realtime console';
+      $('cmdBackdrop').classList.remove('open');
+      $('cmdWindow').classList.remove('open');
+      if (state.runner.jobId) $('cmdMini').classList.add('show');
+    }
+
+    function minimizeRealtimeConsole() {
+      $('cmdBackdrop').classList.remove('open');
+      $('cmdWindow').classList.remove('open');
+      if (state.runner.jobId) $('cmdMini').classList.add('show');
+    }
+
+    function closeRealtimeConsole() {
+      minimizeRealtimeConsole();
+    }
+
+    function appendRealtimeLines(lines) {
+      if (!Array.isArray(lines) || !lines.length) return;
+      state.runner.logLines.push(...lines);
+      if (state.runner.logLines.length > 20000) state.runner.logLines = state.runner.logLines.slice(-20000);
+      const tail = state.runner.logLines.slice(-1400).map(compactTerminalLine).filter(Boolean).slice(-900);
+      const html = tail.map(line => `<span class="log-line ${logClass(line)}">${escapeHtml(line)}</span>`).join('');
+      $('cmdLog').innerHTML = html;
+      $('cmdLog').scrollTop = $('cmdLog').scrollHeight;
+      renderRunnerLog(state.runner.logLines);
+    }
+
+    function compactTerminalLine(line) {
+      let text = String(line || '').trim();
+      if (!text) return '';
+      text = text.replace(/^\[\d+\s+(?:OUT|ERR)\]\s*/i, '');
+      const low = text.toLowerCase();
+      if (/fig\.(tight_layout|savefig|clf|close)\(/i.test(text)) return '';
+      if (/matplotlib|findfont|userwarning|openblas|loaded more than 1 dll|deprecated/i.test(text)) return '';
+      if (/pythonsoftwarefoundation|python\.exe|lumerical/i.test(low) && /fsp|template|api|python/i.test(low)) return '';
+      if (/^[a-z]:\\/i.test(text) && !/(输出|results|run_|error|warning|警告|失败|异常)/i.test(text)) return '';
+      if (/(源\s*FSP|工作母版\s*FSP|镜像母版\s*FSP|master_template\.fsp)/i.test(text)) return '';
+      if (/结构状态说明已保存|扫描计划已保存/i.test(text)) return '';
+      if (/^=+$|^-+$/.test(text)) return text.slice(0, 72);
+      const keep = [
+        /启动|start/i,
+        /准备|prepare/i,
+        /当前用户修改区影响/,
+        /扰动[:：]/,
+        /输出此次结果目录/,
+        /开始仿真/,
+        /剩余组数/,
+        /完成并保存/,
+        /用时|预计剩余/,
+        /max|maxt|min|T\|?\^?2/i,
+        /warning|warn|警告/i,
+        /error|failed|exception|traceback|失败|异常/i,
+        /stop|停止|终止/i,
+        /\[\d+\/\d+\]/,
+        /全部完成|all done/i,
+      ];
+      if (!keep.some(re => re.test(text))) return '';
+      return text.length > 260 ? `${text.slice(0, 257)}...` : text;
+    }
+
+    function updateRealtimeConsole(data = {}) {
+      state.runner.latestJob = data;
+      const progress = Math.max(0, Math.min(100, Number(data.progress ?? 0) || 0));
+      const current = Number(data.current || 0);
+      const total = Number(data.total || 0);
+      $('cmdProgressText').textContent = `${Math.round(progress)}%`;
+      $('cmdStepText').textContent = total ? `${Math.min(current, total)}/${total}` : `${current || 0}/?`;
+      $('cmdPidText').textContent = data.pid ? String(data.pid) : (state.runner.jobId ? state.runner.jobId.slice(0, 8) : '-');
+      $('cmdLineText').textContent = String(state.runner.logCursor || state.runner.logLines.length || 0);
+      $('cmdCurrentText').textContent = data.current_title || data.title || (data.running ? '运行中' : '等待任务');
+      $('cmdDetailText').textContent = data.current_detail || data.last_output || (data.running ? '正在读取实时输出...' : `returncode ${data.returncode ?? '-'}`);
+      $('cmdMiniTitle').textContent = data.running ? 'FDTD running' : 'FDTD console';
+      $('cmdMiniText').textContent = `${Math.round(progress)}% / ${data.current_title || data.last_output || '点击展开实时终端'}`;
+      $('cmdMiniBar').style.width = `${progress}%`;
+      renderTerminalSpectrum(data.latest_spectrum || null);
+    }
+
+    function renderTerminalSpectrum(spectrum) {
+      const box = $('cmdSpectrum');
+      if (!box) return;
+      if (!spectrum || !Array.isArray(spectrum.points) || !spectrum.points.length) {
+        box.innerHTML = `
+          <div class="cmd-spectrum-title">latest transmission spectrum</div>
+          <svg viewBox="0 0 420 126" role="img" aria-label="latest transmission spectrum">
+            <text x="18" y="66" fill="#64748b" font-size="12">等待第一个 xlsx 结果...</text>
+          </svg>
+          <div class="cmd-spectrum-meta">完成一个样本后自动读取最新 Excel 并绘制</div>`;
+        return;
+      }
+      const pts = spectrum.points.map(p => [Number(p[0]), Number(p[1])]).filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+      if (!pts.length) return;
+      const xs = pts.map(p => p[0]);
+      const ys = pts.map(p => p[1]);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+      const pad = 13, w = 420, h = 126;
+      const sx = x => pad + (x - minX) / Math.max(1e-12, maxX - minX) * (w - pad * 2);
+      const sy = y => h - pad - (y - minY) / Math.max(1e-12, maxY - minY) * (h - pad * 2);
+      const dots = pts.map(p => `<circle cx="${sx(p[0]).toFixed(2)}" cy="${sy(p[1]).toFixed(2)}" r="1.15" fill="#5eead4" opacity="0.86"/>`).join('');
+      const path = pts.map((p, i) => `${i ? 'L' : 'M'}${sx(p[0]).toFixed(2)},${sy(p[1]).toFixed(2)}`).join(' ');
+      const m = spectrum.metrics || {};
+      const meta = `maxT=${fmt(m.max_y, 6)} @ ${fmt(m.max_x, 3)}nm · minT=${fmt(m.min_y, 6)} @ ${fmt(m.min_x, 3)}nm · points=${spectrum.point_count || pts.length}`;
+      box.innerHTML = `
+        <div class="cmd-spectrum-title">${escapeHtml(spectrum.name || 'latest spectrum')}</div>
+        <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="latest transmission spectrum">
+          <line x1="${pad}" y1="${h - pad}" x2="${w - pad}" y2="${h - pad}" stroke="#1e293b"/>
+          <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${h - pad}" stroke="#1e293b"/>
+          <path d="${path}" fill="none" stroke="#38bdf8" stroke-width="1.2" opacity="0.8"/>
+          ${dots}
+        </svg>
+        <div class="cmd-spectrum-meta">${escapeHtml(meta)}</div>`;
+    }
+
+    async function stopCurrentJob() {
+      const jid = state.runner.jobId;
+      if (!jid) return alert('当前没有可停止的后台任务。');
+      if (!confirm('强制停止当前后台任务？这会终止 Python 进程及其子进程。')) return;
+      $('runnerStatus').textContent = 'stopping';
+      const res = await fetch('/api/stop-job', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ job_id: jid })
+      });
+      const data = await res.json();
+      if (!data.ok) return alert(`停止失败：${data.error || 'unknown error'}`);
+      updateJobStrip({ running: false, progress: 0, current_title: '已请求强制停止' });
+      pollRunnerJob();
+    }
+
+    async function startRunnerJob(forceMissingOnly = false) {
+      persistRunnerForm();
+      const r = state.runner;
+      if (r.kind === 'manager') {
+        const ids = requireSelectedManagerIds('整理选中');
+        if (ids) return startManagerNormalize(ids);
+        return;
+      }
+      const mode = runnerFieldValue('mode', 'full') || 'full';
+      const style = runnerFieldValue('style', 'sequential') || 'sequential';
+      const maxParallel = Number(runnerFieldValue('maxParallel', 1) || 1);
+      const childTimeoutS = Number(runnerFieldValue('childTimeoutS', 3600) || 3600);
+      const missingOnly = forceMissingOnly || runnerFieldChecked('missingOnly');
+      const ids = r.kind === 'controller' ? controllerLaunchIds(forceMissingOnly) : (runnerFieldValue('ids', '') || '');
+      const overrides = runnerOverrides();
+      if (r.kind === 'controller' && selectedControllerScripts(forceMissingOnly).length === 0) {
+        $('runnerStatus').textContent = 'ready';
+        return alert('当前没有勾选任何扰动脚本，请在第一步选择至少一个扰动。');
+      }
+      resetRealtimeConsole(r.title || 'FDTD realtime console');
+      openRealtimeConsole(r.title || 'FDTD realtime console');
+      appendRealtimeLines(['启动中...', `模式: ${mode} | 方式: ${style} | ids: ${ids || '全部'}`]);
+      $('runnerStatus').textContent = 'starting';
+      updateJobStrip({ running: true, progress: 0, current_title: r.title || '正在启动后台任务' });
+      const url = r.kind === 'controller' ? '/api/start-controller' : `/api/start-script?id=${encodeURIComponent(r.id)}`;
+      const body = r.kind === 'controller'
+        ? { mode, style, ids, overrides, missing_only: missingOnly, max_parallel: maxParallel, child_timeout_s: childTimeoutS }
+        : { mode, overrides };
+      const res = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!data.ok) {
+        $('runnerStatus').textContent = 'error';
+        appendRealtimeLines([data.error || 'start failed']);
+        return;
+      }
+      r.jobId = data.job_id;
+      r.logCursor = 0;
+      $('runnerStatus').textContent = `PID job ${data.job_id}`;
+      pollRunnerJob();
+    }
+
+    async function pollRunnerJob() {
+      const jid = state.runner.jobId;
+      if (!jid) return;
+      clearTimeout(state.runner.timer);
+      try {
+        const res = await fetch(`/api/job?id=${encodeURIComponent(jid)}&since=${encodeURIComponent(state.runner.logCursor || 0)}`);
+        const data = await res.json();
+        if (data.ok) {
+          appendRealtimeLines(data.lines || []);
+          state.runner.logCursor = Number(data.line_count ?? ((state.runner.logCursor || 0) + (data.lines || []).length));
+          $('runnerStatus').textContent = data.running ? `running PID ${data.pid || ''}` : `done ${data.returncode}`;
+          updateRealtimeConsole(data);
+          updateJobStrip(data);
+          if (data.running) {
+            state.runner.timer = setTimeout(pollRunnerJob, 1200);
+            setTimeout(() => scan(false, false).catch(console.warn), 250);
+          } else {
+            setTimeout(() => scan(true, false).catch(console.warn), 900);
+          }
+        }
+      } catch (err) {
+        $('runnerStatus').textContent = 'poll error';
+        state.runner.timer = setTimeout(pollRunnerJob, 1800);
+      }
+    }
+
+    async function restoreLatestJob() {
+      const res = await fetch('/api/jobs');
+      const data = await res.json();
+      if (!data.ok || !data.latest || !data.latest.id) return;
+      const job = data.latest;
+      const recentEnough = Date.now() / 1000 - Number(job.started || 0) < 12 * 3600;
+      if (!job.running && !recentEnough) return;
+      state.runner = {
+        ...state.runner,
+        kind: 'restored',
+        id: '',
+        title: job.title || 'FDTD realtime console',
+        params: state.runner.params,
+        scripts: state.runner.scripts || [],
+        form: state.runner.form || {},
+        jobId: job.id,
+        timer: null,
+        step: state.runner.step || 1,
+        logCursor: Math.max(0, Number(job.line_count || 0) - 320),
+        logLines: [],
+        latestJob: job,
+      };
+      $('runnerStatus').textContent = job.running ? `running PID ${job.pid || ''}` : `done ${job.returncode}`;
+      updateJobStrip(job);
+      resetRealtimeConsole(job.title || 'FDTD realtime console');
+      state.runner.logCursor = Math.max(0, Number(job.line_count || 0) - 320);
+      $('cmdMini').classList.add('show');
+      pollRunnerJob();
+    }
+
+    async function openFolder(id, button) {
+      if (!id) return;
+      const oldText = button ? button.textContent : '';
+      if (button) {
+        button.disabled = true;
+        button.textContent = '正在打开';
+      }
+      try {
+        const res = await fetch(`/api/open-folder?id=${encodeURIComponent(id)}`);
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'open folder failed');
+        if (button) button.textContent = '已打开';
+        setTimeout(() => {
+          if (button) {
+            button.disabled = false;
+            button.textContent = oldText;
+          }
+        }, 900);
+      } catch (err) {
+        console.error(err);
+        if (button) {
+          button.disabled = false;
+          button.textContent = '打开失败';
+          setTimeout(() => button.textContent = oldText, 1500);
+        }
+      }
+    }
+
+    function bindOpenFolderButtons() {
+      document.querySelectorAll('[data-open-folder]').forEach(btn => {
+        if (btn.dataset.openBound === '1') return;
+        btn.dataset.openBound = '1';
+        btn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          openFolder(btn.dataset.openFolder, btn);
+        });
+      });
+    }
+
+    async function openFile(id, button) {
+      if (!id) return;
+      const oldText = button ? button.textContent : '';
+      if (button) {
+        button.disabled = true;
+        button.textContent = '正在打开';
+      }
+      try {
+        const res = await fetch(`/api/open-file?id=${encodeURIComponent(id)}`);
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'open file failed');
+        if (button) button.textContent = '已打开';
+        setTimeout(() => {
+          if (button) {
+            button.disabled = false;
+            button.textContent = oldText;
+          }
+        }, 900);
+      } catch (err) {
+        console.error(err);
+        if (button) {
+          button.disabled = false;
+          button.textContent = '打开失败';
+          setTimeout(() => button.textContent = oldText, 1500);
+        }
+      }
+    }
+
+    function bindOpenFileButtons() {
+      document.querySelectorAll('[data-open-file]').forEach(btn => {
+        if (btn.dataset.openFileBound === '1') return;
+        btn.dataset.openFileBound = '1';
+        btn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          openFile(btn.dataset.openFile, btn);
+        });
+      });
+    }
+
+    async function deleteRun(id, button) {
+      const run = state.runs.find(r => r.id === id);
+      if (!run) return;
+      const ok = confirm(`确定删除这个 run 文件夹到回收站吗？\n\n${run.relative_path}`);
+      if (!ok) return;
+      const oldText = button ? button.textContent : '';
+      if (button) {
+        button.disabled = true;
+        button.textContent = '删除中';
+      }
+      try {
+        const res = await fetch(`/api/delete-run?id=${encodeURIComponent(id)}`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'delete failed');
+        await scan();
+      } catch (err) {
+        console.error(err);
+        alert(`删除失败：${err.message}`);
+        if (button) {
+          button.disabled = false;
+          button.textContent = oldText;
+        }
+      }
+    }
+
+    function bindDeleteButtons() {
+      document.querySelectorAll('[data-delete-run]').forEach(btn => {
+        if (btn.dataset.deleteBound === '1') return;
+        btn.dataset.deleteBound = '1';
+        btn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          deleteRun(btn.dataset.deleteRun, btn);
+        });
+      });
+    }
+
+    async function startScript(id, button) {
+      const oldText = button ? button.textContent : '';
+      if (button) {
+        button.disabled = true;
+        button.textContent = '启动中';
+      }
+      try {
+        const res = await fetch(`/api/start-script?id=${encodeURIComponent(id)}`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'start failed');
+        if (button) button.textContent = `已启动 PID ${data.pid}`;
+        setTimeout(() => {
+          if (button) {
+            button.disabled = false;
+            button.textContent = oldText;
+          }
+        }, 1800);
+      } catch (err) {
+        console.error(err);
+        alert(`启动失败：${err.message}`);
+        if (button) {
+          button.disabled = false;
+          button.textContent = oldText;
+        }
+      }
+    }
+
+    function bindStartButtons() {
+      document.querySelectorAll('[data-start-script]').forEach(btn => {
+        if (btn.dataset.startBound === '1') return;
+        btn.dataset.startBound = '1';
+        btn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          openRunner('script', btn.dataset.startScript, '\u8fd0\u884c\u5c0f\u6270\u52a8\u811a\u672c');
+        });
+      });
+    }
+
+    function escapeHtml(text) {
+      return String(text ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[ch]));
+    }
+
+    function bindStatCards() {
+      document.querySelectorAll('[data-stat]').forEach(card => {
+        const activate = () => showDashboard(card.dataset.stat);
+        card.addEventListener('click', activate);
+        card.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            activate();
+          }
+        });
+      });
+    }
+
+    async function openResultsManager(focus = null) {
+      state.runner = { kind: 'manager', id: '', title: '\u7ed3\u679c\u7ba1\u7406', params: null, scripts: [], form: {}, jobId: '', timer: null, step: 1, logCursor: 0, logLines: [], latestJob: null, logExpanded: false, logAutoScroll: true, focus };
+      setActiveNav('manager');
+      $('runnerTitle').textContent = '结果管理';
+      $('runnerForm').innerHTML = '<div class="runner-skeleton"><span></span><span></span><span></span></div>';
+      $('runnerStartMissing').style.display = 'none';
+      $('runnerStatus').textContent = 'loading';
+      renderRunnerLog(['???? results ??...']);
+      $('runnerDrawer').classList.add('open');
+      const res = await fetch('/api/results-manager');
+      const data = await res.json();
+      if (!data.ok) { $('runnerStatus').textContent = 'error'; $('runnerLog').textContent = data.error || 'failed'; return; }
+      renderResultsManager(data.records || [], data.summary || {}, focus);
+    }
+
+    function renderResultsManager(records, summary = {}, focus = null) {
+      state.runner.managerRecords = records;
+      const totalCurrent = records.reduce((sum, r) => sum + Number(r.current_runs || 0), 0);
+      const archiveRuns = summary.archive_runs ?? records.reduce((sum, r) => sum + Number(r.archive_runs || 0), 0);
+      const archiveFiles = summary.archive_files ?? records.reduce((sum, r) => sum + Number(r.archive_files || 0), 0);
+      const badArchived = summary.unconverged_runs ?? records.reduce((sum, r) => sum + Number(r.unconverged_runs || 0), 0);
+      const grouped = groupManagerRecords(records);
+      $('runnerForm').innerHTML = `
+        <div class="runner-hint manager-brief">结果管理按“扫描状态 → 推荐整理 → 目录选择 → 危险操作”组织。所有整理动作优先移动到归档目录，危险动作会单独确认。</div>
+        <div class="runner-field wide manager-summary">
+          <div class="summary-card"><b>${records.length}</b><span>扰动目录</span></div>
+          <div class="summary-card"><b>${totalCurrent}</b><span>当前 run</span></div>
+          <div class="summary-card"><b>${archiveRuns}</b><span>旧文件 run</span></div>
+          <div class="summary-card bad"><b>${badArchived}</b><span>不收敛归档；文件 ${archiveFiles}</span></div>
+        </div>
+        <div class="manager-actions manager-toolbar">
+          <span class="mini-actions">
+            <button type="button" class="mini-btn" id="managerSelectAll">全选</button>
+            <button type="button" class="mini-btn" id="managerClear">清空</button>
+            <button type="button" class="mini-btn" id="managerOpenAll">展开全部</button>
+            <button type="button" class="mini-btn" id="managerCloseAll">收起全部</button>
+          </span>
+          <span class="mini-actions">
+            <button type="button" class="mini-btn" id="managerRefresh">刷新管理列表</button>
+            <button type="button" class="mini-btn" id="managerArchiveAdvice">生成归档建议</button>
+            <select id="managerBatchTag" aria-label="批量标签">
+              ${RUN_TAGS.map(tag => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`).join('')}
+            </select>
+            <button type="button" class="mini-btn" id="managerApplyTag">给选中最新 run 打标签</button>
+          </span>
+        </div>
+        <div class="manager-empty" id="managerAdviceBox">归档建议只做提示，不会移动或删除文件。</div>
+        <div class="manager-section-label">推荐操作</div>
+        <div class="manager-options recommended">
+          <div class="manager-option"><b>1</b><span><strong>只查看扫描结果</strong><br><span class="param-line">刷新列表，不移动、不删除。</span></span><button type="button" class="mini-btn" id="managerViewOnly">执行</button></div>
+          <div class="manager-option"><b>2</b><span><strong>批量整理全部</strong><br><span class="param-line">每个扰动保留最新 run，其余移动到 旧文件/type/待考察。</span></span><button type="button" class="mini-btn primary-mini" id="managerNormalizeAll">执行</button></div>
+          <div class="manager-option"><b>3</b><span><strong>选择编号整理</strong><br><span class="param-line">只整理下方勾选扰动；每个保留最新 run。</span></span><button type="button" class="mini-btn" id="managerNormalizeSelected">执行</button></div>
+          <div class="manager-option"><b>bad</b><span><strong>移动不收敛</strong><br><span class="param-line">把含 max(T)&gt;1 的 run 移动到“不收敛结果”。</span></span><button type="button" class="mini-btn" id="managerMoveBad">执行</button></div>
+        </div>
+        <div class="manager-section-label danger-title">危险操作</div>
+        <div class="manager-options danger-zone">
+          <div class="manager-option"><b>0</b><span><strong>退出</strong><br><span class="param-line">关闭右侧整理面板，不移动、不删除。</span></span><button type="button" class="mini-btn" id="managerExit">执行</button></div>
+          <div class="manager-option danger"><b>4</b><span><strong>批量删除旧 run</strong><br><span class="param-line">每个扰动保留最新 run，其余直接删除。</span></span><button type="button" class="mini-btn danger-btn" id="managerDeleteOld">执行</button></div>
+          <div class="manager-option"><b>5</b><span><strong>只清空所有 旧文件/type/无效</strong><br><span class="param-line">对应脚本选项 5，作用于全部扰动目录。</span></span><button type="button" class="mini-btn" id="managerCleanInvalid">执行</button></div>
+          <div class="manager-option danger"><b>6</b><span><strong>选中扰动全部当前 run 移到待考察</strong><br><span class="param-line">不保留当前 run；只作用于下方勾选扰动。</span></span><button type="button" class="mini-btn danger-btn" id="managerArchiveSelected">执行</button></div>
+        </div>
+        <div class="manager-section-label">目录分组</div>
+        <div class="manager-list">
+          ${grouped.map(category => `
+            <details class="runner-group">
+              <summary><span>${escapeHtml(category.category)}</span><span class="pill">${category.count} 个扰动 / 当前 ${category.currentRuns}</span></summary>
+              <div class="runner-group-body">
+                ${category.mothers.map(mother => `
+                  <details class="runner-subgroup">
+                    <summary><span>${escapeHtml(mother.mother)}</span><span class="pill">${mother.records.length} 个扰动 / 当前 ${mother.currentRuns}</span></summary>
+                    <div class="runner-group-body">
+                      ${mother.records.map(r => renderManagerRecord(r, focus)).join('')}
+                    </div>
+                  </details>
+                `).join('')}
+              </div>
+            </details>
+          `).join('') || '<div class="manager-empty">没有可整理的 results 扰动目录。</div>'}
+        </div>`;
+      $('runnerStatus').textContent = 'ready';
+      $('runnerLog').textContent = '结果整理待命：0-6 选项已同步到网页端。';
+      $('runnerStart').textContent = '整理选中';
+      $('managerExit')?.addEventListener('click', () => $('runnerDrawer').classList.remove('open'));
+      $('managerViewOnly')?.addEventListener('click', () => openResultsManager());
+      $('managerNormalizeAll')?.addEventListener('click', () => startManagerNormalize([]));
+      $('managerNormalizeSelected')?.addEventListener('click', () => {
+        const ids = requireSelectedManagerIds('选择编号整理');
+        if (ids) startManagerNormalize(ids);
+      });
+      $('managerCleanInvalid')?.addEventListener('click', () => startManagerAction('/api/results-manager-clean-invalid', [], '清空所有 旧文件/type/无效 中的内容？'));
+      $('managerSelectAll')?.addEventListener('click', () => document.querySelectorAll('[data-manager-id]').forEach(input => input.checked = true));
+      $('managerClear')?.addEventListener('click', () => document.querySelectorAll('[data-manager-id]').forEach(input => input.checked = false));
+      $('managerOpenAll')?.addEventListener('click', () => document.querySelectorAll('#runnerForm details').forEach(detail => detail.open = true));
+      $('managerCloseAll')?.addEventListener('click', () => document.querySelectorAll('#runnerForm details').forEach(detail => detail.open = false));
+      $('managerMoveBad')?.addEventListener('click', moveUnconverged);
+      $('managerArchiveSelected')?.addEventListener('click', () => {
+        const ids = requireSelectedManagerIds('选中扰动全部当前 run 移到待考察');
+        if (ids) startManagerAction('/api/results-manager-archive-current', ids, '把选中扰动的所有当前 run_* 全部移动到旧文件/待考察？');
+      });
+      $('managerDeleteOld')?.addEventListener('click', () => startManagerAction('/api/results-manager-delete-old', [], '直接删除所有扰动目录里的旧 run，只保留最新 run？此操作不进回收站。'));
+      $('managerRefresh')?.addEventListener('click', () => openResultsManager());
+      $('managerArchiveAdvice')?.addEventListener('click', () => renderArchiveAdvice(records));
+      $('managerApplyTag')?.addEventListener('click', () => applyManagerBatchTag());
+      bindOpenFolderButtons();
+      focusManagerRecord(focus);
+    }
+
+    function latestRunForManagerRecord(record) {
+      const prefix = String(record.path || '').replace(/[\\/]+$/, '');
+      const matches = state.runs
+        .filter(run => String(run.relative_path || '').startsWith(prefix) && !isArchivedRun(run))
+        .sort((a, b) => Number(b.modified || 0) - Number(a.modified || 0));
+      return matches[0] || null;
+    }
+
+    function selectedManagerLatestRunIds() {
+      const ids = new Set(selectedManagerIds());
+      const records = (state.runner.managerRecords || []).filter(record => ids.has(String(record.id)));
+      return records.map(latestRunForManagerRecord).filter(Boolean).map(run => run.id);
+    }
+
+    function renderArchiveAdvice(records) {
+      const box = $('managerAdviceBox');
+      if (!box) return;
+      const highValueIds = new Set(highValueRuns(state.runs).map(row => String(row.run.id)));
+      const selected = new Set(selectedManagerIds());
+      const rows = records
+        .filter(record => !selected.size || selected.has(String(record.id)))
+        .map(record => {
+          const run = latestRunForManagerRecord(record);
+          const tags = new Set(run?.tags || []);
+          const bad = run ? countBadItems(run) : 0;
+          const protectedRun = run && (highValueIds.has(String(run.id)) || tags.has('可用于报告') || tags.has('值得复跑') || !run.viewed);
+          let advice = '暂无归档建议';
+          let level = 'info';
+          if (protectedRun) {
+            advice = '不建议归档：高价值、已打标签或尚未查看';
+            level = 'ok';
+          } else if (bad >= Math.max(3, Math.ceil((run?.count || 0) * 0.3))) {
+            advice = '建议移动到“不收敛结果”，先不要删除';
+            level = 'bad';
+          } else if (Number(record.current_runs || 0) > 1) {
+            advice = `可归档旧 run：当前 ${record.current_runs} 个，保留最新后移动其余到待考察`;
+            level = 'warn';
+          }
+          return { record, run, advice, level, bad };
+        })
+        .filter(row => row.advice !== '暂无归档建议');
+      box.className = 'manager-empty archive-advice-box';
+      box.innerHTML = rows.length ? `
+        <div class="panel-title"><span>归档建议</span><span class="pill">${rows.length} 条；仅提示</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>扰动</th><th>当前 run</th><th>不收敛</th><th>建议</th><th>操作入口</th></tr></thead>
+            <tbody>
+              ${rows.map(row => `
+                <tr class="${row.level === 'bad' ? 'unconverged' : ''}">
+                  <td>${escapeHtml(row.record.category || '')} / ${escapeHtml(row.record.mother || '')} / ${escapeHtml(row.record.perturbation || '')}</td>
+                  <td>${row.record.current_runs || 0}</td>
+                  <td>${row.bad}</td>
+                  <td>${escapeHtml(row.advice)}</td>
+                  <td>${row.run ? `<button class="mini-btn" data-run="${row.run.id}">查看</button>` : '<span class="pill">暂无 run</span>'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>` : '当前选中范围内没有需要归档的明显候选。';
+      box.querySelectorAll('[data-run]').forEach(btn => btn.addEventListener('click', () => selectRun(btn.dataset.run)));
+    }
+
+    async function applyManagerBatchTag() {
+      const tag = $('managerBatchTag')?.value || '';
+      const runIds = selectedManagerLatestRunIds();
+      if (!tag) return;
+      if (!runIds.length) return alert('请先勾选至少一个有最新 run 的扰动目录。');
+      const res = await fetch('/api/batch-run-tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ run_ids: runIds, tags: [tag], mode: 'add' })
+      });
+      const data = await res.json();
+      if (!data.ok) return alert(data.error || '批量标签保存失败');
+      const updates = new Map((data.updated || []).map(row => [String(row.id), row.tags || []]));
+      state.runs.forEach(run => {
+        if (updates.has(String(run.id))) run.tags = updates.get(String(run.id));
+      });
+      $('runnerLog').textContent = `已给 ${data.updated?.length || 0} 个最新 run 添加标签：${tag}`;
+    }
+
+    function groupManagerRecords(records) {
+      const categories = new Map();
+      for (const record of records) {
+        const category = record.category || '未分类';
+        const mother = record.mother || '未标注母结构';
+        if (!categories.has(category)) categories.set(category, new Map());
+        const mothers = categories.get(category);
+        if (!mothers.has(mother)) mothers.set(mother, []);
+        mothers.get(mother).push(record);
+      }
+      return [...categories.entries()].map(([category, mothers]) => {
+        const motherGroups = [...mothers.entries()].map(([mother, items]) => ({
+          mother,
+          records: items.sort((a, b) => String(a.perturbation || '').localeCompare(String(b.perturbation || ''), 'zh-CN', { numeric: true })),
+          currentRuns: items.reduce((sum, item) => sum + Number(item.current_runs || 0), 0)
+        })).sort((a, b) => a.mother.localeCompare(b.mother, 'zh-CN', { numeric: true }));
+        return {
+          category,
+          mothers: motherGroups,
+          count: motherGroups.reduce((sum, item) => sum + item.records.length, 0),
+          currentRuns: motherGroups.reduce((sum, item) => sum + item.currentRuns, 0)
+        };
+      }).sort((a, b) => a.category.localeCompare(b.category, 'zh-CN', { numeric: true }));
+    }
+
+    function managerRecordMatchesFocus(r, focus) {
+      if (!focus) return false;
+      const rel = String(focus.relative_path || '');
+      const target = `${r.path || ''}\\`;
+      return rel.startsWith(target) || (
+        String(r.category || '') === String(focus.category || '') &&
+        String(r.mother || '') === String(focus.mother || '') &&
+        String(r.perturbation || '') === String(focus.perturbation || '')
+      );
+    }
+
+    function renderManagerRecord(r, focus = null) {
+      const focused = managerRecordMatchesFocus(r, focus);
+      return `
+        <label class="manager-row ${focused ? 'focused' : ''}" data-manager-path="${escapeHtml(r.path || '')}">
+          <input type="checkbox" data-manager-id="${r.id}" ${focused ? 'checked' : ''}>
+          <span>
+            <strong>[${r.index}] ${escapeHtml(r.perturbation)}</strong><br>
+            <span class="param-line">
+              当前 ${r.current_runs} / full ${r.modes?.full || 0} / test ${r.modes?.test || 0} / preview ${r.modes?.preview || 0} / 旧run ${r.archive_runs || 0} / 旧文件 ${r.archive_files || 0} / 不收敛 ${r.unconverged_runs || 0}
+            </span>
+          </span>
+          <span class="mini-actions">
+            <span class="pill">${escapeHtml(r.latest || '-')}</span>
+            <button type="button" class="mini-btn" data-open-folder="${r.id}">打开</button>
+          </span>
+        </label>`;
+    }
+
+    function focusManagerRecord(focus = null) {
+      if (!focus) return;
+      const row = document.querySelector('.manager-row.focused');
+      if (!row) return;
+      let parent = row.parentElement;
+      while (parent) {
+        if (parent.tagName === 'DETAILS') parent.open = true;
+        parent = parent.parentElement;
+      }
+      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      $('runnerLog').textContent = '已定位到当前扰动目录，可直接执行“选择编号整理”或打开该目录。';
+    }
+
+    function bindManageCurrentButtons() {
+      document.querySelectorAll('[data-manage-current-run]').forEach(btn => {
+        if (btn.dataset.manageBound === '1') return;
+        btn.dataset.manageBound = '1';
+        btn.addEventListener('click', event => {
+          event.stopPropagation();
+          const run = state.runs.find(item => String(item.id) === String(btn.dataset.manageCurrentRun));
+          if (!run) return openResultsManager();
+          const parts = String(run.relative_path || '').split(/[\\/]/);
+          const resultIndex = parts.indexOf('results');
+          const focus = {
+            relative_path: run.relative_path,
+            category: resultIndex >= 2 ? parts[0] : '',
+            mother: resultIndex >= 1 ? parts[resultIndex - 1] : '',
+            perturbation: resultIndex >= 0 ? parts[resultIndex + 1] : run.perturbation,
+          };
+          openResultsManager(focus);
+        });
+      });
+    }
+
+    function selectedManagerIds() {
+      return [...document.querySelectorAll('[data-manager-id]:checked')].map(input => input.dataset.managerId);
+    }
+
+    function requireSelectedManagerIds(actionName) {
+      const ids = selectedManagerIds();
+      if (!ids.length) {
+        alert(`${actionName} 需要先勾选至少一个扰动目录。`);
+        return null;
+      }
+      return ids;
+    }
+
+    async function startManagerAction(url, ids, confirmText = '') {
+      if (confirmText && !confirm(confirmText)) return;
+      const res = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ ids }) });
+      const data = await res.json();
+      if (!data.ok) return alert(data.error || 'failed');
+      state.runner.jobId = data.job_id;
+      resetRealtimeConsole('结果管理任务');
+      openRealtimeConsole('结果管理任务');
+      pollRunnerJob();
+    }
+
+    async function startManagerNormalize(ids) {
+      return startManagerAction('/api/results-manager-normalize', ids);
+    }
+
+    function topologyRecords() {
+      const rows = state.data?.perturbation_status || [];
+      const runById = new Map(state.runs.map(run => [String(run.id), run]));
+      const records = rows
+        .filter(row => row.latest_run_id && runById.has(String(row.latest_run_id)))
+        .map(row => {
+          const run = runById.get(String(row.latest_run_id));
+          const bad = (run.items || []).filter(item => item.unconverged || Number(item.max_abs2) > 1).length;
+          const xlsx = (run.items || []).filter(item => item.xlsx_id).length;
+          return {
+            category: row.category || run.category || '未分类',
+            mother: row.mother || run.mother || '未标注母结构',
+            perturbation: row.perturbation || run.perturbation || run.name,
+            run,
+            bad,
+            xlsx
+          };
+        })
+        .filter(item => item.xlsx >= 3);
+      if (records.length) return records;
+      return state.runs
+        .filter(run => String(run.name || '').startsWith('run_full') && (run.items || []).filter(item => item.xlsx_id).length >= 3)
+        .map(run => ({
+          category: run.category || String(run.relative_path || '').split(/[\\/]/)[0] || '未分类',
+          mother: run.mother || String(run.relative_path || '').split(/[\\/]/)[1] || '未标注母结构',
+          perturbation: run.perturbation || String(run.relative_path || '').split(/[\\/]/)[3] || run.name,
+          run,
+          bad: (run.items || []).filter(item => item.unconverged || Number(item.max_abs2) > 1).length,
+          xlsx: (run.items || []).filter(item => item.xlsx_id).length
+        }));
+    }
+
+    function renderTopologyModal() {
+      const keyword = ($('topologySearch')?.value || '').trim().toLowerCase();
+      const records = topologyRecords().filter(item => {
+        const hay = `${item.category} ${item.mother} ${item.perturbation} ${item.run.relative_path}`.toLowerCase();
+        return !keyword || hay.includes(keyword);
+      });
+      $('topologyCount').textContent = `${records.length} 个可分析扰动`;
+      if (!records.length) {
+        $('topologyModalBody').innerHTML = '<div class="empty">没有找到可生成拓扑热图的 run。需要至少 3 条带 Excel 的当前 run_full 结果。</div>';
+        return;
+      }
+      const byCategory = new Map();
+      records.forEach(item => {
+        if (!byCategory.has(item.category)) byCategory.set(item.category, new Map());
+        const mothers = byCategory.get(item.category);
+        if (!mothers.has(item.mother)) mothers.set(item.mother, []);
+        mothers.get(item.mother).push(item);
+      });
+      $('topologyModalBody').innerHTML = [...byCategory.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0], 'zh-CN', { numeric: true }))
+        .map(([category, mothers]) => {
+          const count = [...mothers.values()].reduce((sum, list) => sum + list.length, 0);
+          return `
+            <section class="topology-group">
+              <div class="topology-group-title"><span>${escapeHtml(category)}</span><span class="pill">${count} 个扰动</span></div>
+              ${[...mothers.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh-CN', { numeric: true })).map(([mother, items]) => `
+                <div class="topology-mother">
+                  <strong>${escapeHtml(mother)}</strong>
+                  <div class="topology-run-list">
+                    ${items.sort((a, b) => a.perturbation.localeCompare(b.perturbation, 'zh-CN', { numeric: true })).map(item => `
+                      <div class="topology-run-card ready">
+                        <b>${escapeHtml(item.perturbation)}</b>
+                        <span class="topology-run-meta">${escapeHtml(item.run.name)} / ${item.xlsx} 条谱线${item.bad ? ` / ${item.bad} 条不收敛` : ''}</span>
+                        <span class="mini-actions">
+                          <a class="mini-btn primary-mini" href="/topology_transition_analysis.html?run_id=${encodeURIComponent(item.run.id)}" target="_blank" rel="noopener">打开拓扑相变页</a>
+                          <a class="mini-btn" href="/spectral_physics_diagnostics.html?run_id=${encodeURIComponent(item.run.id)}" target="_blank" rel="noopener">光谱诊断</a>
+                          <button class="mini-btn" data-run="${item.run.id}">在主界面查看</button>
+                        </span>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              `).join('')}
+            </section>`;
+        }).join('');
+      bindRunButtonsInMain();
+    }
+
+    function openTopologyModal() {
+      setActiveNav('topology');
+      renderTopologyModal();
+      $('topologyModal').classList.add('open');
+      $('topologyModal').setAttribute('aria-hidden', 'false');
+      $('topologySearch').focus();
+    }
+
+    function closeTopologyModal() {
+      $('topologyModal').classList.remove('open');
+      $('topologyModal').setAttribute('aria-hidden', 'true');
+    }
+
+    $('moveBadBtn')?.addEventListener('click', moveUnconverged);
+    $('deleteViewedBtn')?.addEventListener('click', () => deleteRunsByViewState(true));
+    $('deleteUnviewedBtn')?.addEventListener('click', () => deleteRunsByViewState(false));
+    $('controllerBtn').addEventListener('click', () => openRunner('controller', '', '\u8fd0\u884c\u603b\u63a7\u811a\u672c'));
+    $('managerBtn').addEventListener('click', () => openResultsManager());
+    $('topologyBtn').addEventListener('click', openTopologyModal);
+    $('topologyClose').addEventListener('click', closeTopologyModal);
+    $('topologyModal').addEventListener('click', event => {
+      if (event.target.id === 'topologyModal') closeTopologyModal();
+    });
+    $('topologySearch').addEventListener('input', renderTopologyModal);
+    $('noteText').value = localStorage.getItem('fdtd_viewer_notes') || '';
+    $('noteFab').addEventListener('click', () => $('notePanel').classList.toggle('open'));
+    $('noteClose').addEventListener('click', () => $('notePanel').classList.remove('open'));
+    $('noteText').addEventListener('input', () => {
+      localStorage.setItem('fdtd_viewer_notes', $('noteText').value);
+      $('noteSaved').textContent = `已自动保存 ${new Date().toLocaleTimeString()}`;
+    });
+    $('noteClear').addEventListener('click', () => {
+      if (!confirm('清空当前浏览器里的仿真笔记？')) return;
+      $('noteText').value = '';
+      localStorage.removeItem('fdtd_viewer_notes');
+      $('noteSaved').textContent = '已清空';
+    });
+    document.addEventListener('mousedown', event => {
+      const drawer = $('runnerDrawer');
+      if (!drawer?.classList.contains('open')) return;
+      if (drawer.contains(event.target)) return;
+      if (event.target.closest('#controllerBtn,#managerBtn,[data-start-script],#runnerDrawer,#cmdWindow,#cmdMini,#cmdBackdrop')) return;
+      persistRunnerForm();
+      drawer.classList.remove('open');
+    });
+    $('runnerClose').addEventListener('click', () => {
+      persistRunnerForm();
+      $('runnerDrawer').classList.remove('open');
+    });
+    $('runnerStart').addEventListener('click', () => startRunnerJob(false));
+    $('runnerStop').addEventListener('click', stopCurrentJob);
+    $('runnerLogExpand')?.addEventListener('click', () => {
+      state.runner.logExpanded = !state.runner.logExpanded;
+      renderRunnerLog(state.runner.logLines || []);
+    });
+    $('runnerLogAuto')?.addEventListener('click', () => {
+      state.runner.logAutoScroll = state.runner.logAutoScroll === false;
+      renderRunnerLog(state.runner.logLines || []);
+    });
+    $('runnerLogClear')?.addEventListener('click', () => {
+      state.runner.logLines = [];
+      renderRunnerLog([]);
+    });
+    $('runnerLog')?.addEventListener('scroll', () => {
+      const log = $('runnerLog');
+      if (!log) return;
+      const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
+      state.runner.logAutoScroll = nearBottom;
+      const autoBtn = $('runnerLogAuto');
+      if (autoBtn) {
+        autoBtn.classList.toggle('mode-active', nearBottom);
+        autoBtn.setAttribute('aria-pressed', nearBottom ? 'true' : 'false');
+      }
+    }, { passive: true });
+    $('cmdMinimize').addEventListener('click', minimizeRealtimeConsole);
+    $('cmdClose').addEventListener('click', closeRealtimeConsole);
+    $('cmdMini').addEventListener('click', () => openRealtimeConsole(state.runner.title || 'FDTD realtime console'));
+    $('runnerStartMissing').addEventListener('click', () => {
+      const box = document.querySelector('[data-runner-field="missingOnly"]');
+      if (box) box.checked = true;
+      state.runner.form = state.runner.form || {};
+      state.runner.form.fields = state.runner.form.fields || {};
+      state.runner.form.fields.missingOnly = true;
+      updateRunnerPreview();
+      startRunnerJob(true);
+    });
+    $('refreshBtn').addEventListener('click', () => scan(true));
+    $('dashboardBtn').addEventListener('click', () => showDashboard('overview'));
+    $('compactBtn')?.addEventListener('click', toggleCompactMode);
+    applyCompactMode(localStorage.getItem('fdtd_compact_mode') === '1');
+    $('expandAll')?.addEventListener('click', () => {
+      const allPaths = collectTreePaths(buildTree(state.filtered));
+      const shouldExpand = state.expandedPaths.size < allPaths.length;
+      state.expandedPaths = shouldExpand ? new Set(allPaths) : new Set();
+      $('expandAll').textContent = shouldExpand ? '收起全部' : '展开全部';
+      renderSidebar();
+    });
+    $('searchInput').addEventListener('input', applyFilter);
+    bindStatCards();
+    setActiveNav('dashboard');
+    scan(false, true);
+
+    function collectTreePaths(root) {
+      const paths = [];
+      function visit(node) {
+        for (const child of node.children.values()) {
+          paths.push(child.path);
+          visit(child);
+        }
+      }
+      visit(root);
+      return paths;
+    }
+  </script>
+</body>
+</html>

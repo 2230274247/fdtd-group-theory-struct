@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <link rel="stylesheet" href="assets/vars.css">
+  <link rel="stylesheet" href="assets/responsive.css">
+<meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FDTD 光谱物理诊断工作台</title>
+  <script>
+    window.__plotlyReady = false;
+    window.__plotlyLoadFailed = false;
+    window.loadPlotlyFallback = function () {
+      if (window.Plotly || document.querySelector('script[data-plotly-cdn]')) return;
+      const script = document.createElement('script');
+      script.src = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
+      script.defer = true;
+      script.dataset.plotlyCdn = '1';
+      script.onload = () => { window.__plotlyReady = true; };
+      script.onerror = () => {
+        window.__plotlyLoadFailed = true;
+        console.warn('Plotly 加载失败，页面将使用内置 SVG fallback。');
+      };
+      document.head.appendChild(script);
+    };
+  </script>
+  <script defer src="assets/vendor/plotly-2.35.2.min.js" onload="window.__plotlyReady=true" onerror="window.loadPlotlyFallback()"></script>
+  <link rel="stylesheet" href="assets/app.css">
+  <link rel="stylesheet" href="assets/ui-refactor.css">
+  <link rel="stylesheet" href="assets/fdtd-workbench.css?v=20260518_svgfix">
+  <link rel="stylesheet" href="assets/spectral-diagnostics.css">
+</head>
+<body class="fdtd-shell" data-page="spectral_diagnostics">
+  <div class="fdtd-workbench spectral-workbench" id="app">
+    <aside class="wb-sidebar spectral-sidebar">
+      <div class="wb-brand">
+        <div class="wb-logo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5m0 14h16" fill="none" stroke="currentColor" stroke-width="2"/><path d="m7 15 4-5 3 3 4-7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        </div>
+        <div>
+          <strong>FDTD 光谱物理诊断工作台</strong>
+          <span>光谱评分 / 机制初判 / 缺失证据</span>
+        </div>
+      </div>
+
+      <section class="wb-filter-card filter-block" hidden>
+        <div class="wb-side-title"><span>常用筛选</span><button type="button" id="sidebarResetBtn">重置</button></div>
+        <div class="wb-filter-field">
+          <label for="searchInput">搜索</label>
+          <input id="searchInput" placeholder="搜索 run、扰动、文件、参数...">
+        </div>
+        <div class="wb-filter-field">
+          <label for="scoreMin">最低分</label>
+          <input id="scoreMin" type="number" min="0" max="100" step="5" value="0">
+        </div>
+        <div class="wb-filter-field">
+          <label for="qMin">最低 Q</label>
+          <input id="qMin" type="number" min="0" step="10" value="0">
+        </div>
+        <label class="check-row"><input id="hideRisk" type="checkbox"><span>隐藏高风险谱线</span></label>
+        <label class="check-row"><input id="onlyMissing" type="checkbox"><span>只看缺关键数据</span></label>
+        <div class="wb-chip-row"><span class="wb-chip active">T 谱</span><span class="wb-chip">FWHM/Q</span><span class="wb-chip">机制证据</span></div>
+      </section>
+
+      <section class="wb-tree-card filter-block" hidden>
+        <div class="wb-side-title"><span>数据完整度</span></div>
+        <div class="data-list" id="dataCompleteness"></div>
+      </section>
+
+      <section class="wb-tree-card filter-block">
+        <div class="wb-side-title"><span>当前候选</span></div>
+        <div id="selectedSummary" class="selected-summary">等待分析结果...</div>
+      </section>
+
+      <div class="wb-side-foot" id="runLabel">正在读取 run 与光谱数据...</div>
+    </aside>
+
+    <section class="wb-stage">
+      <header class="wb-topbar spectral-header">
+<div class="wb-title-block">
+          <div class="wb-breadcrumb"><a href="/index.html">&#39318;&#39029;</a> <span>&#8250;</span> <a href="/global_spectral_leaderboard.html">&#20809;&#35889;&#35786;&#26029;</a> <span>&#8250;</span> <b>&#36890;&#29992;&#20809;&#35889;&#29289;&#29702;&#35786;&#26029;</b></div>
+          <h1>通用光谱物理诊断</h1>
+          <p>自动读取任意 run 的 T 谱，提取 λ0、FWHM、Q、评分、缺失证据和下一步建议。</p>
+        </div>
+        <div class="wb-top-actions spectral-controls">
+          <label class="control-inline">
+            <span>目标</span>
+            <select id="targetSelect">
+              <option value="auto">自动推荐</option>
+              <option value="notch">notch 陷波</option>
+              <option value="passband">passband 带通</option>
+              <option value="fano">Fano</option>
+              <option value="q_mode">high-Q</option>
+              <option value="edge">edge 截止</option>
+              <option value="broadband_high">宽带高透</option>
+              <option value="broadband_low">宽带低透</option>
+              <option value="flat">平坦响应</option>
+              <option value="custom">custom</option>
+            </select>
+          </label>
+          <button class="wb-btn" id="refreshBtn" type="button">刷新</button>
+          <button class="wb-btn primary" id="exportBtn" type="button">导出</button>
+          <details class="wb-more">
+            <summary class="wb-btn">更多</summary>
+            <div class="wb-more-menu">
+              <button class="wb-btn sm" id="compactBtn" type="button" aria-pressed="false">紧凑</button>
+              <button class="wb-btn sm" id="configBtn" type="button">评分规则</button>
+              <button class="wb-btn sm" id="mechanismBtn" type="button">机制详情</button>
+              <a class="wb-btn sm" href="/global_spectral_leaderboard.html">全局排行</a>
+              <a class="wb-btn sm" href="/missing_data_repair_center.html">缺失补算</a>
+              <a class="wb-btn sm" href="/index.html">返回总览</a>
+            </div>
+          </details>
+        </div>
+      </header>
+
+      <nav class="wb-tabs"><a class="active" href="/spectral_physics_diagnostics.html" data-nav="diagnostics">光谱诊断</a><a href="/spectral_compare.html" data-nav="compare">多谱线对比</a><a href="/global_spectral_leaderboard.html" data-nav="leaderboard">全局排行</a><a href="/field_phase_poynting_viewer.html" data-nav="field">场图联动</a><a href="/missing_data_repair_center.html" data-nav="missing">缺失补算</a><a href="/batch_recompute_center.html" data-nav="tasks">任务中心</a><a href="/report_preview_print.html" data-nav="report">报告输出</a><a href="/resource_file_browser.html" data-nav="resources">资源浏览</a><a href="/data_quality_audit.html" data-nav="quality">质量审计</a><a href="/topology_transition_analysis.html" data-nav="topology">拓扑分析</a></nav>
+
+      <main class="wb-page-scroll spectral-main">
+        <div id="statusBar" class="status-bar">正在准备诊断...</div>
+
+        <section class="overview-grid" id="overviewCards"></section>
+
+        <section class="panel-row diagnostic-hero">
+          <article class="panel main-spectrum-panel">
+            <div class="panel-head">
+              <strong>透射谱 T(λ) — 当前样本</strong>
+              <span id="lineMeta">x：波长 λ (nm)，y：透射率 T</span>
+            </div>
+            <div id="singleSpectrum" class="chart-box chart-large"></div>
+          </article>
+          <aside class="panel evidence-panel">
+            <div class="panel-head"><strong>样本信息与质量旗标</strong><span>当前候选</span></div>
+            <div class="panel-body-slim">
+              <div id="candidateQuickInfo" class="selected-summary">点击排行榜行可切换候选。</div>
+              <div id="supportData" class="support-grid stacked"></div>
+            </div>
+          </aside>
+        </section>
+
+        <section class="panel-row two">
+          <article class="panel">
+            <div class="panel-head">
+              <strong>T / R / A 能量分布</strong>
+              <span id="overlayMeta">R/A 未导出时显示缺失占位</span>
+            </div>
+            <div id="traOverlay" class="chart-box"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <strong>扫描参数 — 波长热图</strong>
+              <span id="heatmapMeta">x：波长 λ (nm)</span>
+            </div>
+            <div id="heatmap" class="chart-box"></div>
+          </article>
+        </section>
+
+        <section class="panel-row two">
+          <article class="panel">
+            <div class="panel-head">
+              <strong>多谱线叠加</strong>
+              <span>Top 候选，x：波长 λ (nm)，y：透射率 T</span>
+            </div>
+            <div id="multiSpectrum" class="chart-box"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <strong>物理机制 Top 3</strong>
+              <span>疑似判断，不做确定结论</span>
+            </div>
+            <div id="mechanisms" class="mechanism-list"></div>
+          </article>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <strong>λ0 / FWHM / Q / Score 趋势</strong>
+            <span id="trendMeta">按扫描参数拆分为四张小图</span>
+          </div>
+          <div id="trendChart" class="trend-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <strong id="rankingTitle">排行榜</strong>
+            <span id="rankingMeta"></span>
+          </div>
+          <div class="ranking-wrap table-shell wb-table-shell">
+            <div class="wb-table-scroll">
+              <table class="ranking-table wb-table">
+                <thead id="rankingHead"></thead>
+                <tbody id="rankingBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <strong>下一轮仿真建议</strong>
+            <span>按优先级排序</span>
+          </div>
+          <div id="nextActions" class="action-list"></div>
+        </section>
+
+        <section class="panel export-panel" id="exportPanel" hidden>
+          <div class="panel-head">
+            <strong>导出结果</strong>
+            <span id="exportMeta"></span>
+          </div>
+          <div id="exportLinks" class="export-links"></div>
+        </section>
+      </main>
+
+      <footer class="wb-status"><span>数据源：本地 FDTD 结果库</span><span>URL 参数：run_id / sample_id / target / lambda_nm</span></footer>
+    </section>
+  </div>
+
+  <div class="spectral-modal-layer" id="spectralModal" aria-hidden="true"></div>
+  <div class="spectral-modal-layer drawer" id="spectralDrawer" aria-hidden="true"></div>
+
+  <script defer src="assets/spectral-diagnostics.js?v=20260518_svgfix"></script>
+</body>
+</html>

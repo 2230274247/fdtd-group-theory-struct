@@ -1,0 +1,59 @@
+# -*- coding: utf-8 -*-
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from c2_sweep_common import run
+
+# ========================= 用户主要修改区 =========================
+START_NM = 0.0
+END_NM = 30.0
+STEP_NM = 5.0
+R_START_NM = START_NM
+R_STOP_NM = END_NM
+R_STEP_NM = STEP_NM
+AUTO_STEP = True
+TARGET_SCAN_POINTS = 7
+STEP_MIN_NM = 5.0
+STEP_MAX_NM = 5.0
+
+SIMULATION_TIME_FS = 10000.0
+SIMULATION_TIME_S = SIMULATION_TIME_FS * 1e-15
+AUTO_SHUTOFF_MIN = 1e-12
+MESH_ACCURACY = 2
+DT_STABILITY_FACTOR = 0.8
+
+CONFIG = dict(
+    STRUCTURE_ROOT='H:\\FDTD outcome\\struct\\群论_struct\\C2对称结构\\双圆盘',
+    LUMERICAL_ROOT='D:\\Program Files\\Lumerical\\v202',
+    ASCII_WORK_ROOT='H:\\FDTD_CodeX\\fdtd_ascii_work',
+    RUN_MODE_DEFAULT='ask',
+    TEST_POINT_COUNT=3,
+    SIMULATION_TIME_FS=SIMULATION_TIME_FS,
+    SIMULATION_TIME_S=SIMULATION_TIME_S,
+    AUTO_SHUTOFF_MIN=AUTO_SHUTOFF_MIN,
+    MESH_ACCURACY=MESH_ACCURACY,
+    DT_STABILITY_FACTOR=DT_STABILITY_FACTOR,
+    T_MONITOR_NAME='T',
+    STRUCTURE_CN_NAME='双圆盘',
+    SAFE_NAME='dual_disks',
+    OBJECT_NAME='Si_disk',
+    GEOMETRY_OBJECTS=('Si_disk',),
+    PERTURBATION_NAME='双盘同步开孔扰动',
+    GROUP_PATH='保持 C2',
+    OPERATION='insert_hole',
+    OPERATION_DESCRIPTION='在两个 Si_disk 中心同步插入相同半径 etch 圆孔。',
+    TARGET_INDICES=(1, 2),
+    VALUE_NAME='hole_radius',
+    SCAN_LABEL='all_disk_hole',
+    USER_GUIDE=['双盘同步开孔保持 C2，可作为对照组。'],
+    SCAN_START_NM=R_START_NM,
+    SCAN_STOP_NM=R_STOP_NM,
+    SCAN_STEP_NM=R_STEP_NM,
+    AUTO_SCAN_STEP=AUTO_STEP,
+    TARGET_SCAN_POINTS=TARGET_SCAN_POINTS,
+    SCAN_STEP_MIN_NM=STEP_MIN_NM,
+    SCAN_STEP_MAX_NM=STEP_MAX_NM,
+)
+
+if __name__ == "__main__":
+    run(CONFIG)
