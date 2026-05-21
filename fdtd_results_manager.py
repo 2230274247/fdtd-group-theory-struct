@@ -324,6 +324,67 @@ def clean_all_invalid(records, dry_run=False):
     return total
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 新功能 A：一键把所有扰动的当前 run_* 全部移入旧文件/type/待考察
+# ──────────────────────────────────────────────────────────────────────────────
+def archive_all_runs_all_perturbations(records, dry_run=False):
+    """
+    对每个扰动目录，把所有当前 run_* 都移入 旧文件/type/待考察。
+    等同于 archive_all_current_runs 批量版，不保留任何当前 run。
+    返回总移动数量。
+    """
+    total_moved = 0
+    results = []
+    for r in records:
+        result = archive_all_current_runs(r, dry_run=dry_run)
+        results.append((r, result))
+        total_moved += len(result["moved"])
+    return results, total_moved
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 新功能 B：一键清除旧文件内的所有内容，但保留文件夹层级骨架
+# ──────────────────────────────────────────────────────────────────────────────
+def purge_archive_contents(old_root, dry_run=False):
+    """
+    删除 old_root 下每个 mode/quality 文件夹里的全部内容（文件和子目录），
+    但保留 mode/quality 这些空文件夹本身，以维持目录树结构。
+    返回删除的条目数量。
+    """
+    count = 0
+    for mode in MODE_DIRS:
+        for quality in QUALITY_DIRS:
+            leaf = old_root / mode / quality
+            if not leaf.exists():
+                if not dry_run:
+                    leaf.mkdir(parents=True, exist_ok=True)
+                continue
+            for item in list(leaf.iterdir()):
+                if not dry_run:
+                    if item.is_dir():
+                        shutil.rmtree(str(item))
+                    else:
+                        item.unlink()
+                count += 1
+    return count
+
+
+def purge_all_archive_contents(records, dry_run=False):
+    """
+    对所有扰动目录，清空其旧文件夹内的全部内容，保留文件夹骨架。
+    返回删除的总条目数量。
+    """
+    total = 0
+    for r in records:
+        old_root = r["dir"] / ARCHIVE_DIR_NAME
+        if not old_root.exists() and not dry_run:
+            # 若旧文件夹根本不存在则跳过，无需创建
+            continue
+        if old_root.exists():
+            total += purge_archive_contents(old_root, dry_run=dry_run)
+    return total
+
+
 def parse_indices(text, max_index):
     """
     支持输入：
@@ -380,8 +441,10 @@ def interactive_main(records):
         safe_print("  4 = 批量删除旧 run：每个扰动只保留最新 1 个 run，其余直接删除")
         safe_print("  5 = 只清空所有 旧文件/type/无效")
         safe_print("  6 = 把选中扰动的所有当前 run_* 全部移到待考察，不保留当前 run")
+        safe_print("  7 = 【一键】把所有扰动的全部当前 run_* 移入旧文件/type/待考察（不保留任何当前 run）")
+        safe_print("  8 = 【一键】清除所有旧文件内的全部内容，保留文件夹层级骨架")
         safe_print("  0 = 退出")
-        choice = input("请输入 0/1/2/3/4/5/6：").strip()
+        choice = input("请输入 0/1/2/3/4/5/6/7/8：").strip()
 
         if choice == "0":
             return
@@ -432,6 +495,28 @@ def interactive_main(records):
                 print_action_result(r, result)
             records = scan_records()
             continue
+        if choice == "7":
+            if not confirm_danger(
+                "【一键归档】将把所有扰动下的全部当前 run_* 移入旧文件/type/待考察，不保留任何当前 run。"
+            ):
+                continue
+            results_list, total_moved = archive_all_runs_all_perturbations(records)
+            for r, result in results_list:
+                print_action_result(r, result)
+            safe_print("\n共移动 {} 个 run 目录到旧文件/type/待考察。".format(total_moved))
+            records = scan_records()
+            continue
+        if choice == "8":
+            if not confirm_danger(
+                "【一键清旧】将删除所有扰动旧文件夹内的全部内容（包含待考察/良好/无效下的所有文件和子目录），"
+                "但保留文件夹骨架。此操作不可恢复！",
+                "DELETE",
+            ):
+                continue
+            total_purged = purge_all_archive_contents(records)
+            safe_print("\n已清除旧文件内全部内容，共删除 {} 项，文件夹层级已保留。".format(total_purged))
+            records = scan_records()
+            continue
         safe_print("输入无效，请重新选择。")
 
 
@@ -440,6 +525,10 @@ def main():
     parser.add_argument("--scan", action="store_true", help="只扫描并输出状态。")
     parser.add_argument("--normalize-all", action="store_true", help="整理全部：保留每个扰动最新 run，其余移到待考察。")
     parser.add_argument("--clean-invalid", action="store_true", help="只清空所有旧文件/type/无效。")
+    parser.add_argument("--archive-all-runs", action="store_true",
+                        help="【新】一键把所有扰动的全部当前 run_* 移入旧文件/type/待考察，不保留任何当前 run。")
+    parser.add_argument("--purge-archives", action="store_true",
+                        help="【新】一键清除所有旧文件内的全部内容，保留文件夹层级骨架（不可恢复）。")
     parser.add_argument("--dry-run", action="store_true", help="只输出将要移动/删除的计划，不实际改动文件。")
     parser.add_argument("--keep-latest", type=int, default=KEEP_LATEST_ACTIVE_RUNS, help="每个扰动保留最新 N 个当前 run。")
     args = parser.parse_args()
@@ -466,6 +555,22 @@ def main():
         for r in records:
             result = normalize_one(r, keep_latest=args.keep_latest, delete_instead=False, dry_run=args.dry_run)
             print_action_result(r, result, dry_run=args.dry_run)
+        return
+
+    if args.archive_all_runs:
+        if args.dry_run:
+            safe_print("[DRY-RUN] 以下为计划操作，不会实际移动文件。")
+        results_list, total_moved = archive_all_runs_all_perturbations(records, dry_run=args.dry_run)
+        for r, result in results_list:
+            print_action_result(r, result, dry_run=args.dry_run)
+        safe_print("\n共移动 {} 个 run 目录到旧文件/type/待考察。".format(total_moved))
+        return
+
+    if args.purge_archives:
+        if args.dry_run:
+            safe_print("[DRY-RUN] 以下为计划操作，不会实际删除文件。")
+        total_purged = purge_all_archive_contents(records, dry_run=args.dry_run)
+        safe_print("已清除旧文件内全部内容，共删除 {} 项，文件夹层级已保留。".format(total_purged))
         return
 
     interactive_main(records)
