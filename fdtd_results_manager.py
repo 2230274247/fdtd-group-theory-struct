@@ -385,6 +385,47 @@ def purge_all_archive_contents(records, dry_run=False):
     return total
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 新功能 C：一键删除所有结果文件，只保留扰动目录结构（空文件夹）
+# 范围：群论_struct\***\***\results\扰动名\ 下的全部内容
+# ──────────────────────────────────────────────────────────────────────────────
+def nuke_perturbation_dir(perturbation_dir, dry_run=False):
+    """
+    清空单个扰动目录（perturbation_dir）下的全部内容，
+    包括当前 run_*、旧文件夹及其所有子内容，
+    但保留 perturbation_dir 本身（空文件夹）。
+    返回删除的顶层条目数量及这些条目的名称列表。
+    """
+    deleted_names = []
+    if not perturbation_dir.exists():
+        return 0, deleted_names
+    for item in list(perturbation_dir.iterdir()):
+        deleted_names.append(item.name)
+        if not dry_run:
+            if item.is_dir():
+                shutil.rmtree(str(item))
+            else:
+                item.unlink()
+    return len(deleted_names), deleted_names
+
+
+def nuke_all_perturbation_dirs(records, dry_run=False):
+    """
+    对所有扰动目录执行 nuke_perturbation_dir，彻底清空每个扰动目录下的内容。
+    保留扰动目录文件夹本身（即 results\\扰动名\\ 空文件夹继续存在）。
+    返回 (detail_list, total_count)：
+        detail_list: [(record, count, names), ...]
+        total_count: 所有目录删除的总条目数
+    """
+    detail_list = []
+    total = 0
+    for r in records:
+        count, names = nuke_perturbation_dir(r["dir"], dry_run=dry_run)
+        detail_list.append((r, count, names))
+        total += count
+    return detail_list, total
+
+
 def parse_indices(text, max_index):
     """
     支持输入：
@@ -443,8 +484,9 @@ def interactive_main(records):
         safe_print("  6 = 把选中扰动的所有当前 run_* 全部移到待考察，不保留当前 run")
         safe_print("  7 = 【一键】把所有扰动的全部当前 run_* 移入旧文件/type/待考察（不保留任何当前 run）")
         safe_print("  8 = 【一键】清除所有旧文件内的全部内容，保留文件夹层级骨架")
+        safe_print("  9 = 【核弹】删除所有结果文件，仅保留扰动目录空文件夹（当前 run + 旧文件全清）")
         safe_print("  0 = 退出")
-        choice = input("请输入 0/1/2/3/4/5/6/7/8：").strip()
+        choice = input("请输入 0/1/2/3/4/5/6/7/8/9：").strip()
 
         if choice == "0":
             return
@@ -517,6 +559,25 @@ def interactive_main(records):
             safe_print("\n已清除旧文件内全部内容，共删除 {} 项，文件夹层级已保留。".format(total_purged))
             records = scan_records()
             continue
+        if choice == "9":
+            safe_print("\n⚠️  极度危险操作：将彻底清空所有扰动目录下的全部内容（run_* + 旧文件），")
+            safe_print("   仅保留 results\\扰动名\\ 空文件夹。所有仿真结果将永久丢失，不可恢复！")
+            safe_print("   影响范围：以下 {} 个扰动目录".format(len(records)))
+            for r in records:
+                safe_print("     {}".format(r["dir"]))
+            if not confirm_danger("\n确认要彻底删除以上所有结果文件吗？", "NUKE"):
+                continue
+            detail_list, total_nuked = nuke_all_perturbation_dirs(records)
+            safe_print("")
+            for r, count, names in detail_list:
+                safe_print("[{:03d}] {} / {} / {} — 删除 {} 项".format(
+                    r["index"], r["symmetry"], r["mother"], r["perturbation"], count
+                ))
+                for name in names:
+                    safe_print("    已删除：{}".format(name))
+            safe_print("\n共删除 {} 个顶层条目，所有扰动目录已清空，文件夹结构已保留。".format(total_nuked))
+            records = scan_records()
+            continue
         safe_print("输入无效，请重新选择。")
 
 
@@ -529,6 +590,8 @@ def main():
                         help="【新】一键把所有扰动的全部当前 run_* 移入旧文件/type/待考察，不保留任何当前 run。")
     parser.add_argument("--purge-archives", action="store_true",
                         help="【新】一键清除所有旧文件内的全部内容，保留文件夹层级骨架（不可恢复）。")
+    parser.add_argument("--nuke-all", action="store_true",
+                        help="【核弹】彻底删除所有扰动目录下的全部内容（run_* + 旧文件），仅保留空文件夹结构（极度危险，不可恢复）。")
     parser.add_argument("--dry-run", action="store_true", help="只输出将要移动/删除的计划，不实际改动文件。")
     parser.add_argument("--keep-latest", type=int, default=KEEP_LATEST_ACTIVE_RUNS, help="每个扰动保留最新 N 个当前 run。")
     args = parser.parse_args()
@@ -571,6 +634,21 @@ def main():
             safe_print("[DRY-RUN] 以下为计划操作，不会实际删除文件。")
         total_purged = purge_all_archive_contents(records, dry_run=args.dry_run)
         safe_print("已清除旧文件内全部内容，共删除 {} 项，文件夹层级已保留。".format(total_purged))
+        return
+
+    if args.nuke_all:
+        if args.dry_run:
+            safe_print("[DRY-RUN] 以下为计划操作，不会实际删除文件。")
+            detail_list, total_nuked = nuke_all_perturbation_dirs(records, dry_run=True)
+        else:
+            detail_list, total_nuked = nuke_all_perturbation_dirs(records, dry_run=False)
+        for r, count, names in detail_list:
+            safe_print("[{:03d}] {} / {} / {} — 删除 {} 项".format(
+                r["index"], r["symmetry"], r["mother"], r["perturbation"], count
+            ))
+            for name in names:
+                safe_print("    已删除：{}".format(name))
+        safe_print("\n共删除 {} 个顶层条目，所有扰动目录已清空，文件夹结构已保留。".format(total_nuked))
         return
 
     interactive_main(records)
