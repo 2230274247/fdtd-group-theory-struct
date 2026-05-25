@@ -1,10 +1,7 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
-C3 母结构扰动扫描公共模块。
-
-本模块只负责“复制母版 -> 修改副本 -> 运行仿真 -> 保存结果”的通用流程。
-源 fsp 文件夹中的 .fsp 永远只读，不会被 save 或 setnamed 写回。
-"""
+C3 姣嶇粨鏋勬壈鍔ㄦ壂鎻忓叕鍏辨ā鍧椼€?
+鏈ā鍧楀彧璐熻矗鈥滃鍒舵瘝鐗?-> 淇敼鍓湰 -> 杩愯浠跨湡 -> 淇濆瓨缁撴灉鈥濈殑閫氱敤娴佺▼銆?婧?fsp 鏂囦欢澶逛腑鐨?.fsp 姘歌繙鍙锛屼笉浼氳 save 鎴?setnamed 鍐欏洖銆?"""
 from __future__ import print_function
 
 import argparse
@@ -28,6 +25,19 @@ warnings.filterwarnings("ignore", message=r".*deprecated.*")
 
 import numpy as np
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from fdtd_autotune_common import (
+    normalize_autotune_config,
+    clone_runtime_config,
+    extract_solver_info,
+    evaluate_spectrum_quality,
+    next_retry_config,
+    runtime_profile_text,
+    append_retry_history,
+)
 
 def nm(value_m):
     arr = np.asarray(value_m)
@@ -42,9 +52,7 @@ def um_from_nm(value_nm):
 
 def chinese_timestamp():
     now = datetime.now()
-    return "{}年{}月{}日_{:02d}时{:02d}分{:02d}秒".format(
-        now.year, now.month, now.day, now.hour, now.minute, now.second
-    )
+    return "{}年{}月{}日_{:02d}时{:02d}分{:02d}秒".format(now.year, now.month, now.day, now.hour, now.minute, now.second)
 
 
 def safe_token(text):
@@ -78,7 +86,7 @@ def file_sha256(path):
 
 def assert_source_unchanged(source_fsp, expected_hash):
     if file_sha256(source_fsp) != expected_hash:
-        raise RuntimeError("源 FSP 文件发生变化，脚本已停止，避免误改源文件：{}".format(source_fsp))
+        raise RuntimeError("婧?FSP 鏂囦欢鍙戠敓鍙樺寲锛岃剼鏈凡鍋滄锛岄伩鍏嶈鏀规簮鏂囦欢锛歿}".format(source_fsp))
 
 
 def import_lumapi(lumerical_root):
@@ -91,7 +99,7 @@ def import_lumapi(lumerical_root):
     lumapi_file = api_dir / "lumapi.py"
     spec = importlib.util.spec_from_file_location("lumapi", str(lumapi_file))
     if spec is None or spec.loader is None:
-        raise RuntimeError("无法导入 lumapi：{}".format(lumapi_file))
+        raise RuntimeError("鏃犳硶瀵煎叆 lumapi锛歿}".format(lumapi_file))
     lumapi = importlib.util.module_from_spec(spec)
     sys.modules["lumapi"] = lumapi
     spec.loader.exec_module(lumapi)
@@ -102,7 +110,6 @@ def find_source_fsp(structure_root):
     files = sorted((Path(structure_root) / "fsp").glob("*.fsp"))
     if not files:
         raise RuntimeError("没有在 fsp 文件夹中找到 .fsp 文件。")
-    # 如果有多个 .fsp，优先选择文件名时间戳较新的版本。
     return sorted(files, key=lambda p: (p.name, p.stat().st_mtime), reverse=True)[0]
 
 
@@ -300,7 +307,7 @@ def apply_point(fdtd, config, point):
             base = float(getnamed(fdtd, obj, "rotation 1", idx))
             setnamed(fdtd, obj, "rotation 1", base + v, idx)
     else:
-        raise ValueError("未知 OPERATION: {}".format(kind))
+        raise ValueError("鏈煡 OPERATION: {}".format(kind))
 
 
 def extract_transmission(fdtd, monitor_name):
@@ -409,13 +416,18 @@ def write_scan_plan(path, points):
 
 
 def write_manifest(path, rows):
-    keys = ["index", "name", "status", "fsp", "xlsx", "png", "elapsed_s", "max_abs2", "max_wavelength_nm", "min_abs2", "min_wavelength_nm"]
+    keys = [
+        "index", "name", "status", "retry_count", "quality_flags", "quality_reasons",
+        "solver_status", "solver_status_text", "autoshutoff_final",
+        "simulation_time_fs", "auto_shutoff_min", "mesh_accuracy", "dt_stability_factor",
+        "fsp", "xlsx", "png", "elapsed_s",
+        "max_abs2", "max_wavelength_nm", "min_abs2", "min_wavelength_nm",
+    ]
     with Path(path).open("w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
-
 
 def read_basic_geometry(fdtd, config):
     g = {"objects": {}}
@@ -446,21 +458,21 @@ def write_note(path, config, source_fsp, geometry, points, mode):
     lines = [
         "# {} 结构状态说明".format(config["STRUCTURE_CN_NAME"]),
         "",
-        "- 运行模式：{}".format(mode),
-        "- 源 FSP：{}".format(source_fsp),
-        "- 扰动名称：{}".format(config["PERTURBATION_NAME"]),
-        "- 降群路径：{}".format(config["GROUP_PATH"]),
-        "- 操作对象：{}".format(config["OBJECT_NAME"]),
-        "- 操作说明：{}".format(config["OPERATION_DESCRIPTION"]),
-        "- 扫描点数：{}".format(len(points)),
-        "- 结果目录：00_scan_plan / 01_fsp / 02_transmission_excel / 03_transmission_abs2_png / 04_logs / 05_work_fsp",
+        "- 运行模式: {}".format(mode),
+        "- 源 FSP: {}".format(source_fsp),
+        "- 扰动名称: {}".format(config["PERTURBATION_NAME"]),
+        "- 降群路径: {}".format(config["GROUP_PATH"]),
+        "- 操作对象: {}".format(config["OBJECT_NAME"]),
+        "- 操作说明: {}".format(config["OPERATION_DESCRIPTION"]),
+        "- 扫描点数: {}".format(len(points)),
+        "- 结果目录: 00_scan_plan / 01_fsp / 02_transmission_excel / 03_transmission_abs2_png / 04_logs / 05_work_fsp",
         "",
         "## 用户主要修改区解释",
     ]
     lines.extend(config.get("USER_GUIDE", []))
     lines.extend(["", "## 实际读取到的主要几何"])
     for name, arr in geometry.get("objects", {}).items():
-        lines.append("- {}：{} 个对象".format(name, len(arr)))
+        lines.append("- {}: {} 个对象".format(name, len(arr)))
         for d in arr[:10]:
             chunks = []
             for k in ("x", "y", "x span", "y span", "radius", "radius 2", "z span", "rotation 1"):
@@ -484,11 +496,11 @@ def result_paths(folders, point):
 def describe_scan(config, points):
     if config.get("SCAN_UNIT") == "deg":
         step = points[0].get("step_deg", 0) if points else 0
-        return "{}：{:+.3f} deg 到 {:+.3f} deg，自动/当前步长 {:.3f} deg，共 {} 组".format(
+        return "{}：{:+.3f} deg 到 {:+.3f} deg，当前步长 {:.3f} deg，共 {} 组".format(
             config["VALUE_NAME"], float(config["SCAN_START_DEG"]), float(config["SCAN_STOP_DEG"]), float(step), len(points)
         )
     step = points[0].get("step_nm", 0) if points else 0
-    return "{}：{:.4f} um 到 {:.4f} um，自动/当前步长 {:.4f} um，共 {} 组".format(
+    return "{}：{:.4f} um 到 {:.4f} um，当前步长 {:.4f} um，共 {} 组".format(
         config["VALUE_NAME"], um_from_nm(config["SCAN_START_NM"]), um_from_nm(config["SCAN_STOP_NM"]),
         float(step) * 1e-3, len(points)
     )
@@ -502,6 +514,10 @@ def parse_args(config):
     parser.add_argument("--preview", action="store_true")
     parser.add_argument("--max-points", type=int, default=None)
     parser.add_argument("--run-dir", default=None)
+    parser.add_argument("--auto-retry-max", type=int, default=None)
+    parser.add_argument("--disable-auto-retry", action="store_true")
+    parser.add_argument("--quality-t-limit", type=float, default=None)
+    parser.add_argument("--quality-ripple-limit", type=float, default=None)
     args = parser.parse_args()
     args.prompted_mode = False
     if args.test:
@@ -521,6 +537,14 @@ def parse_args(config):
         args.mode = {"1": "test", "2": "full", "3": "preview"}.get(choice)
         if args.mode is None:
             raise ValueError("只能输入 1、2 或 3。")
+    if args.auto_retry_max is not None:
+        config["AUTO_RETRY_MAX"] = int(args.auto_retry_max)
+    if args.disable_auto_retry:
+        config["AUTO_RETRY_ENABLED"] = False
+    if args.quality_t_limit is not None:
+        config["QUALITY_T_LIMIT"] = float(args.quality_t_limit)
+    if args.quality_ripple_limit is not None:
+        config["QUALITY_RIPPLE_LIMIT"] = float(args.quality_ripple_limit)
     return args
 
 
@@ -555,10 +579,9 @@ def maybe_ask_fdtd_runtime_overrides(config):
         config[key] = int(value) if key == "MESH_ACCURACY" else value
     if config.get("SIMULATION_TIME_FS") is not None:
         config["SIMULATION_TIME_S"] = float(config["SIMULATION_TIME_FS"]) * 1e-15
-
-
 def run(config):
     args = parse_args(config)
+    normalize_autotune_config(config)
     mode = args.mode
     if mode in ("test", "full") and getattr(args, "prompted_mode", False):
         maybe_ask_fdtd_runtime_overrides(config)
@@ -577,19 +600,16 @@ def run(config):
 
     points = build_scan_points(config, mode, args.max_points)
     write_scan_plan(folders["plan"] / "scan_points.csv", points)
-    note_path = run_dir / "结构状态说明.md"
-    write_note(note_path, config, source_fsp, geometry, points, mode)
+    write_note(run_dir / "结构状态说明.md", config, source_fsp, geometry, points, mode)
 
     print("源 FSP: {}".format(source_fsp))
     print("results 工作母版 FSP: {}".format(result_master))
     print("Lumerical 英文镜像母版 FSP: {}".format(ascii_master))
     print("输出批次目录: {}".format(run_dir))
     print("扰动: {}；降群路径: {}".format(config["PERTURBATION_NAME"], config["GROUP_PATH"]))
-    print("当前用户修改区影响: {}".format(describe_scan(config, points)))
-    if config.get("SIMULATION_TIME_S") is not None:
-        print("单次仿真时间上限: {:.3f} ps；auto shutoff min: {}".format(float(config["SIMULATION_TIME_S"]) * 1e12, config.get("AUTO_SHUTOFF_MIN")))
+    print("扫描: {} 从 {:.3f} nm 到 {:.3f} nm，计划点数 {}".format(config["VALUE_NAME"], config["SCAN_START_NM"], config["SCAN_STOP_NM"], len(points)))
     print("扫描计划已保存: {}".format(folders["plan"] / "scan_points.csv"))
-    print("结构说明已保存: {}".format(note_path))
+    print("结构说明已保存: {}".format(run_dir / "结构状态说明.md"))
 
     if mode == "preview":
         print("预览模式结束：没有运行真实 FDTD。")
@@ -597,46 +617,163 @@ def run(config):
 
     rows = []
     total_start = time.time()
+    max_retry = int(config.get("AUTO_RETRY_MAX", 2)) if config.get("AUTO_RETRY_ENABLED", True) else 0
+    base_runtime_config = clone_runtime_config(config)
+    retry_history_path = folders["logs"] / "retry_history.csv"
+
     for idx, point in enumerate(points, 1):
         assert_source_unchanged(source_fsp, source_hash)
         paths = result_paths(folders, point)
-        ascii_point = ascii_root / (point["name"] + ".fsp")
-        shutil.copy2(str(ascii_master), str(ascii_point))
-        value_text = "{:+.3f} deg".format(point["value_deg"]) if config.get("SCAN_UNIT") == "deg" else "{:.4f} um".format(point["value_nm"] / 1000.0)
-        print("[{}/{}] 开始仿真：{}；{}={}".format(idx, len(points), point["name"], config["VALUE_NAME"], value_text))
-        print("    剩余组数(含当前): {}/{}".format(len(points) - idx + 1, len(points)))
-        start = time.time()
-        fdtd = lumapi.FDTD(hide=True)
-        try:
-            fdtd.load(str(ascii_point))
-            apply_point(fdtd, config, point)
-            fdtd.save(str(ascii_point))
-            fdtd.run()
-            wavelength_m, transmission = extract_transmission(fdtd, config["T_MONITOR_NAME"])
-            fdtd.save(str(ascii_point))
-            shutil.copy2(str(ascii_point), str(paths["fsp"]))
-            write_xlsx(paths["xlsx"], wavelength_m, transmission)
-            save_abs2_plot(paths["png"], config, point, wavelength_m, transmission)
-            summary = spectrum_summary(wavelength_m, transmission)
-            elapsed = time.time() - start
-            done = idx
-            avg = (time.time() - total_start) / float(done)
-            eta = avg * (len(points) - idx)
-            print("    完成并保存，用时 {}；|T|^2 max={:.6g} @ {:.3f} nm，min={:.6g} @ {:.3f} nm；预计剩余 {}".format(
-                format_duration(elapsed), summary["max"], summary["max_nm"], summary["min"], summary["min_nm"], format_duration(eta)
-            ))
-            rows.append({
-                "index": point["index"], "name": point["name"], "status": "ok",
-                "fsp": str(paths["fsp"]), "xlsx": str(paths["xlsx"]), "png": str(paths["png"]),
-                "elapsed_s": "{:.3f}".format(elapsed),
-                "max_abs2": summary["max"], "max_wavelength_nm": summary["max_nm"],
-                "min_abs2": summary["min"], "min_wavelength_nm": summary["min_nm"],
-            })
-        finally:
-            try:
-                fdtd.close()
-            except Exception:
-                pass
-        write_manifest(folders["logs"] / "manifest.csv", rows)
+        ascii_point_base = ascii_root / (point["name"] + ".fsp")
+        shutil.copy2(str(ascii_master), str(ascii_point_base))
 
-    print("全部完成。manifest: {}".format(folders["logs"] / "manifest.csv"))
+        print("[{}/{}] 开始仿真：{}；{}={:.3f} nm".format(idx, len(points), point["name"], config["VALUE_NAME"], point["value_nm"]))
+
+        final_quality = None
+        final_summary = {"max": None}
+        final_elapsed = 0.0
+        final_solver_info = {}
+        final_runtime_config = clone_runtime_config(base_runtime_config)
+        accepted = False
+        wavelength_m = None
+        transmission = None
+        final_ascii_point = ascii_point_base
+        attempt = 0
+
+        for attempt in range(0, max_retry + 1):
+            runtime_config = final_runtime_config if attempt == 0 else next_retry_config(
+                base_runtime_config, final_runtime_config, final_quality or {"flags": []}, attempt
+            )
+            final_runtime_config = runtime_config
+
+            attempt_suffix = "" if attempt == 0 else "_retry{:02d}".format(attempt)
+            ascii_point = ascii_root / (point["name"] + attempt_suffix + ".fsp")
+            if attempt == 0:
+                shutil.copy2(str(ascii_point_base), str(ascii_point))
+            else:
+                shutil.copy2(str(ascii_master), str(ascii_point))
+            final_ascii_point = ascii_point
+
+            print("  尝试 {}/{}：{}".format(attempt, max_retry, runtime_profile_text(runtime_config)))
+            start = time.time()
+            fdtd = None
+            solver_info = {}
+            quality = None
+            wavelength_m = None
+            transmission = None
+            try:
+                fdtd = lumapi.FDTD(hide=True)
+                fdtd.load(str(ascii_point))
+                apply_point(fdtd, runtime_config, point)
+                fdtd.save(str(ascii_point))
+                fdtd.run()
+                solver_info = extract_solver_info(fdtd, runtime_config.get("FDTD_OBJECT_NAME", "FDTD"))
+                wavelength_m, transmission = extract_transmission(fdtd, runtime_config["T_MONITOR_NAME"])
+                fdtd.save(str(ascii_point))
+                quality = evaluate_spectrum_quality(wavelength_m, transmission, solver_info, runtime_config)
+            except Exception as exc:
+                quality = {
+                    "accepted": False,
+                    "status": "need_retry",
+                    "flags": ["exception"],
+                    "reasons": [repr(exc)],
+                    "tmax": "",
+                    "tmin": "",
+                    "ripple_score": "",
+                    "sign_changes": "",
+                }
+            finally:
+                try:
+                    if fdtd is not None:
+                        fdtd.close()
+                except Exception:
+                    pass
+
+            elapsed = time.time() - start
+            final_elapsed = elapsed
+            final_quality = quality
+            final_solver_info = solver_info
+
+            append_retry_history(retry_history_path, {
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "point_index": point["index"],
+                "point_name": point["name"],
+                "attempt": attempt,
+                "accepted": quality.get("accepted"),
+                "quality_status": quality.get("status"),
+                "flags": quality.get("flags"),
+                "reasons": quality.get("reasons"),
+                "tmax": quality.get("tmax"),
+                "tmin": quality.get("tmin"),
+                "ripple_score": quality.get("ripple_score"),
+                "sign_changes": quality.get("sign_changes"),
+                "solver_status": solver_info.get("solver_status", ""),
+                "solver_status_text": solver_info.get("solver_status_text", ""),
+                "autoshutoff_final": solver_info.get("autoshutoff_final", ""),
+                "simulation_time_fs": runtime_config.get("SIMULATION_TIME_FS"),
+                "auto_shutoff_min": runtime_config.get("AUTO_SHUTOFF_MIN"),
+                "mesh_accuracy": runtime_config.get("MESH_ACCURACY"),
+                "dt_stability_factor": runtime_config.get("DT_STABILITY_FACTOR"),
+                "elapsed_s": "{:.3f}".format(elapsed),
+                "fsp": str(ascii_point),
+                "xlsx": str(paths["xlsx"]),
+                "png": str(paths["png"]),
+            })
+
+            print("  质量检测：{}；flags={}".format(quality.get("status"), ",".join(quality.get("flags") or [])))
+            if quality.get("accepted"):
+                accepted = True
+                break
+            if attempt < max_retry:
+                print("  当前点不收敛，暂停后续扰动点，优先重试当前点。")
+            else:
+                print("  超过最大自动重试次数，标记 failed_quarantined，继续下一个扰动点。")
+
+        try:
+            shutil.copy2(str(final_ascii_point), str(paths["fsp"]))
+        except Exception:
+            pass
+
+        if wavelength_m is not None and transmission is not None:
+            write_xlsx(paths["xlsx"], wavelength_m, transmission)
+            save_abs2_plot(paths["png"], final_runtime_config, point, wavelength_m, transmission)
+            final_summary = spectrum_summary(wavelength_m, transmission)
+        else:
+            final_summary = {"max": None}
+
+        eta = ((time.time() - total_start) / float(idx)) * (len(points) - idx)
+        print("    完成，用时 {}；预计剩余 {}".format(format_duration(final_elapsed), format_duration(eta)))
+        if final_summary.get("max") is not None:
+            print("    本点谱信息: max |T|^2={:.6g} @ {:.3f} nm；min |T|^2={:.6g} @ {:.3f} nm".format(final_summary["max"], final_summary["max_nm"], final_summary["min"], final_summary["min_nm"]))
+
+        row_status = final_quality.get("status") if final_quality else "unknown"
+        if not accepted:
+            row_status = "failed_quarantined"
+
+        rows.append({
+            "index": point["index"],
+            "name": point["name"],
+            "status": row_status,
+            "retry_count": max(0, attempt),
+            "quality_flags": ";".join(final_quality.get("flags") or []) if final_quality else "",
+            "quality_reasons": ";".join(final_quality.get("reasons") or []) if final_quality else "",
+            "solver_status": final_solver_info.get("solver_status", ""),
+            "solver_status_text": final_solver_info.get("solver_status_text", ""),
+            "autoshutoff_final": final_solver_info.get("autoshutoff_final", ""),
+            "simulation_time_fs": final_runtime_config.get("SIMULATION_TIME_FS"),
+            "auto_shutoff_min": final_runtime_config.get("AUTO_SHUTOFF_MIN"),
+            "mesh_accuracy": final_runtime_config.get("MESH_ACCURACY"),
+            "dt_stability_factor": final_runtime_config.get("DT_STABILITY_FACTOR"),
+            "fsp": str(paths["fsp"]),
+            "xlsx": str(paths["xlsx"]),
+            "png": str(paths["png"]),
+            "elapsed_s": "{:.3f}".format(final_elapsed),
+            "max_abs2": "" if final_summary.get("max") is None else "{:.18e}".format(final_summary["max"]),
+            "max_wavelength_nm": "" if final_summary.get("max") is None else "{:.9f}".format(final_summary["max_nm"]),
+            "min_abs2": "" if final_summary.get("max") is None else "{:.18e}".format(final_summary["min"]),
+            "min_wavelength_nm": "" if final_summary.get("max") is None else "{:.9f}".format(final_summary["min_nm"]),
+        })
+        write_manifest(run_dir / "manifest.csv", rows)
+        assert_source_unchanged(source_fsp, source_hash)
+
+    print("全部完成。总用时 {}".format(format_duration(time.time() - total_start)))

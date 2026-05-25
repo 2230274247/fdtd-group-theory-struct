@@ -1,17 +1,12 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
-四柱簇 FDTD 自动化扫描公共模块
-================================
+鍥涙煴绨?FDTD 鑷姩鍖栨壂鎻忓叕鍏辨ā鍧?================================
 
-这个模块被四个扰动入口脚本共用。设计目标：
-1. 绝不修改 fsp 文件夹内的源 .fsp；
-2. 每次运行先把源 .fsp 复制到 results/扰动名/run_模式_时间戳/05_work_fsp/master_template.fsp；
-3. 每个扫描点再从母版复制出独立工作副本，只修改该副本；
-4. 每个真实仿真点结束后立刻保存本点 .fsp、透射谱 abs^2 图片、Excel 源数据；
-5. 运行时实时输出当前参数、单点耗时、剩余组数、预计剩余时间和本点谱峰信息。
-
-入口脚本只需要提供 CONFIG 字典；真正的文件组织、扫描计划、FDTD 调用和结果保存都在这里完成。
-"""
+杩欎釜妯″潡琚洓涓壈鍔ㄥ叆鍙ｈ剼鏈叡鐢ㄣ€傝璁＄洰鏍囷細
+1. 缁濅笉淇敼 fsp 鏂囦欢澶瑰唴鐨勬簮 .fsp锛?2. 姣忔杩愯鍏堟妸婧?.fsp 澶嶅埗鍒?results/鎵板姩鍚?run_妯″紡_鏃堕棿鎴?05_work_fsp/master_template.fsp锛?3. 姣忎釜鎵弿鐐瑰啀浠庢瘝鐗堝鍒跺嚭鐙珛宸ヤ綔鍓湰锛屽彧淇敼璇ュ壇鏈紱
+4. 姣忎釜鐪熷疄浠跨湡鐐圭粨鏉熷悗绔嬪埢淇濆瓨鏈偣 .fsp銆侀€忓皠璋?abs^2 鍥剧墖銆丒xcel 婧愭暟鎹紱
+5. 杩愯鏃跺疄鏃惰緭鍑哄綋鍓嶅弬鏁般€佸崟鐐硅€楁椂銆佸墿浣欑粍鏁般€侀璁″墿浣欐椂闂村拰鏈偣璋卞嘲淇℃伅銆?
+鍏ュ彛鑴氭湰鍙渶瑕佹彁渚?CONFIG 瀛楀吀锛涚湡姝ｇ殑鏂囦欢缁勭粐銆佹壂鎻忚鍒掋€丗DTD 璋冪敤鍜岀粨鏋滀繚瀛橀兘鍦ㄨ繖閲屽畬鎴愩€?"""
 
 import argparse
 import csv
@@ -34,6 +29,19 @@ warnings.filterwarnings("ignore", message=r".*deprecated.*")
 
 import numpy as np
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from fdtd_autotune_common import (
+    normalize_autotune_config,
+    clone_runtime_config,
+    extract_solver_info,
+    evaluate_spectrum_quality,
+    next_retry_config,
+    runtime_profile_text,
+    append_retry_history,
+)
 
 PILLAR_LABELS = {
     1: "right_0deg",
@@ -44,7 +52,7 @@ PILLAR_LABELS = {
 
 
 def nm(value_m):
-    """把米转换成 nm；既支持单个数，也支持 numpy 数组。"""
+    """鎶婄背杞崲鎴?nm锛涙棦鏀寔鍗曚釜鏁帮紝涔熸敮鎸?numpy 鏁扮粍銆?""
     arr = np.asarray(value_m)
     if arr.shape == ():
         return float(arr) * 1e9
@@ -57,7 +65,7 @@ def clamp(value, lower, upper):
 
 def chinese_timestamp():
     now = datetime.now()
-    return "{}年{}月{}日_{:02d}时{:02d}分{:02d}秒".format(
+    return "{}骞磠}鏈坽}鏃{:02d}鏃秢:02d}鍒唟:02d}绉?.format(
         now.year, now.month, now.day, now.hour, now.minute, now.second
     )
 
@@ -95,14 +103,14 @@ def assert_source_unchanged(source_fsp, expected_hash):
     now_hash = file_sha256(source_fsp)
     if now_hash != expected_hash:
         raise RuntimeError(
-            "安全保护触发：源 FSP 文件发生变化，脚本已停止。\n"
-            "源文件：{}\n原始 SHA256：{}\n当前 SHA256：{}".format(source_fsp, expected_hash, now_hash)
+            "瀹夊叏淇濇姢瑙﹀彂锛氭簮 FSP 鏂囦欢鍙戠敓鍙樺寲锛岃剼鏈凡鍋滄銆俓n"
+            "婧愭枃浠讹細{}\n鍘熷 SHA256锛歿}\n褰撳墠 SHA256锛歿}".format(source_fsp, expected_hash, now_hash)
         )
 
 
 def frange(start, stop, step):
     if step <= 0:
-        raise ValueError("扫描步长必须大于 0。")
+        raise ValueError("鎵弿姝ラ暱蹇呴』澶т簬 0銆?)
     values = []
     value = float(start)
     guard = 0
@@ -111,7 +119,7 @@ def frange(start, stop, step):
         value += float(step)
         guard += 1
         if guard > 10000:
-            raise RuntimeError("扫描点数超过 10000，请检查范围和步长。")
+            raise RuntimeError("鎵弿鐐规暟瓒呰繃 10000锛岃妫€鏌ヨ寖鍥村拰姝ラ暱銆?)
     if values and abs(values[-1] - float(stop)) > abs(step) * 1e-6:
         values.append(float(stop))
     if not values:
@@ -122,7 +130,7 @@ def frange(start, stop, step):
 def auto_step(start, stop, manual_step, auto_enabled, target_points, step_min, step_max):
     if not auto_enabled:
         if manual_step <= 0:
-            raise ValueError("手动步长必须大于 0。")
+            raise ValueError("鎵嬪姩姝ラ暱蹇呴』澶т簬 0銆?)
         return float(manual_step)
     span = abs(float(stop) - float(start))
     if span <= 0:
@@ -141,7 +149,7 @@ def import_lumapi(lumerical_root):
     lumapi_file = api_dir / "lumapi.py"
     spec = importlib.util.spec_from_file_location("lumapi", str(lumapi_file))
     if spec is None or spec.loader is None:
-        raise RuntimeError("无法导入 lumapi：{}".format(lumapi_file))
+        raise RuntimeError("鏃犳硶瀵煎叆 lumapi锛歿}".format(lumapi_file))
     lumapi = importlib.util.module_from_spec(spec)
     sys.modules["lumapi"] = lumapi
     spec.loader.exec_module(lumapi)
@@ -151,7 +159,7 @@ def import_lumapi(lumerical_root):
 def find_source_fsp(structure_root):
     files = sorted((Path(structure_root) / "fsp").glob("*.fsp"))
     if len(files) != 1:
-        raise RuntimeError("期望在 fsp 文件夹内找到 1 个 .fsp，实际找到 {} 个。".format(len(files)))
+        raise RuntimeError("鏈熸湜鍦?fsp 鏂囦欢澶瑰唴鎵惧埌 1 涓?.fsp锛屽疄闄呮壘鍒?{} 涓€?.format(len(files)))
     return files[0]
 
 
@@ -299,9 +307,7 @@ def offset_upper_bound(geometry, config, pillar_index, unit_x, unit_y):
         return 0.0
     boundary_limit = min(positive)
 
-    # 如果用户把偏移方向改成朝内或斜向，需要同时避免目标柱与其他柱相交。
-    # 条件：|当前位置 + t * 方向 - 其他柱中心| >= r_self + r_other + min_gap。
-    collision_limits = []
+    # 濡傛灉鐢ㄦ埛鎶婂亸绉绘柟鍚戞敼鎴愭湞鍐呮垨鏂滃悜锛岄渶瑕佸悓鏃堕伩鍏嶇洰鏍囨煴涓庡叾浠栨煴鐩镐氦銆?    # 鏉′欢锛殀褰撳墠浣嶇疆 + t * 鏂瑰悜 - 鍏朵粬鏌变腑蹇億 >= r_self + r_other + min_gap銆?    collision_limits = []
     for other in geometry["pillars"]:
         if int(other["index"]) == int(pillar_index):
             continue
@@ -316,8 +322,7 @@ def offset_upper_bound(geometry, config, pillar_index, unit_x, unit_y):
         root = disc ** 0.5
         t1 = (-b - root) / 2.0
         t2 = (-b + root) / 2.0
-        # 从 t=0 的安全位置出发，第一次进入禁区的正根就是可用偏移上限。
-        if t1 > 1e-15:
+        # 浠?t=0 鐨勫畨鍏ㄤ綅缃嚭鍙戯紝绗竴娆¤繘鍏ョ鍖虹殑姝ｆ牴灏辨槸鍙敤鍋忕Щ涓婇檺銆?        if t1 > 1e-15:
             collision_limits.append(t1)
         elif t2 > 1e-15 and c < 0:
             collision_limits.append(0.0)
@@ -329,7 +334,7 @@ def offset_upper_bound(geometry, config, pillar_index, unit_x, unit_y):
 def normalize_direction(dx, dy):
     length = (float(dx) * float(dx) + float(dy) * float(dy)) ** 0.5
     if length <= 0:
-        raise ValueError("偏移方向不能是 (0, 0)。")
+        raise ValueError("鍋忕Щ鏂瑰悜涓嶈兘鏄?(0, 0)銆?)
     return float(dx) / length, float(dy) / length
 
 
@@ -343,7 +348,7 @@ def build_scan_points(config, geometry, mode, max_points=None):
         stop = min(desired_stop, auto_upper)
         if stop < start:
             raise ValueError(
-                "半径扫描终点小于起点。自动上限为 {:.3f} nm，请调小 RADIUS_START_NM 或 MIN_GAP_NM。".format(nm(auto_upper))
+                "鍗婂緞鎵弿缁堢偣灏忎簬璧风偣銆傝嚜鍔ㄤ笂闄愪负 {:.3f} nm锛岃璋冨皬 RADIUS_START_NM 鎴?MIN_GAP_NM銆?.format(nm(auto_upper))
             )
         step = auto_step(
             start, stop, float(config["RADIUS_STEP_NM"]) * 1e-9,
@@ -369,7 +374,7 @@ def build_scan_points(config, geometry, mode, max_points=None):
         stop = min(desired_stop, auto_upper)
         if stop < start:
             raise ValueError(
-                "偏移扫描终点小于起点。自动边界上限为 {:.3f} nm，请调小 OFFSET_START_NM 或 EDGE_CLEARANCE_NM。".format(nm(auto_upper))
+                "鍋忕Щ鎵弿缁堢偣灏忎簬璧风偣銆傝嚜鍔ㄨ竟鐣屼笂闄愪负 {:.3f} nm锛岃璋冨皬 OFFSET_START_NM 鎴?EDGE_CLEARANCE_NM銆?.format(nm(auto_upper))
             )
         step = auto_step(
             start, stop, float(config["OFFSET_STEP_NM"]) * 1e-9,
@@ -396,7 +401,7 @@ def build_scan_points(config, geometry, mode, max_points=None):
                 "step_nm": nm(step),
             })
     else:
-        raise ValueError("未知扰动类型：{}".format(kind))
+        raise ValueError("鏈煡鎵板姩绫诲瀷锛歿}".format(kind))
     if mode == "test":
         points = points[:int(config["TEST_POINT_COUNT"])]
     if max_points is not None:
@@ -407,10 +412,10 @@ def build_scan_points(config, geometry, mode, max_points=None):
 def point_parameter_text(config, point):
     kind = config["PERTURBATION_TYPE"]
     if kind in ("single_radius", "opposite_pair_radius", "all_radius"):
-        return "radius={:.3f} nm；自动半径上限={:.3f} nm；步长={:.3f} nm".format(
+        return "radius={:.3f} nm锛涜嚜鍔ㄥ崐寰勪笂闄?{:.3f} nm锛涙闀?{:.3f} nm".format(
             point["radius_nm"], point["auto_radius_upper_nm"], point["step_nm"]
         )
-    return "offset={:.3f} nm；新位置 x={:.3f} nm, y={:.3f} nm；自动偏移上限={:.3f} nm；步长={:.3f} nm".format(
+    return "offset={:.3f} nm锛涙柊浣嶇疆 x={:.3f} nm, y={:.3f} nm锛涜嚜鍔ㄥ亸绉讳笂闄?{:.3f} nm锛涙闀?{:.3f} nm".format(
         point["offset_nm"], point["new_x_nm"], point["new_y_nm"], point["auto_offset_upper_nm"], point["step_nm"]
     )
 
@@ -500,7 +505,7 @@ def spectrum_summary(wavelength_m, transmission):
 
 
 def write_xlsx(path, wavelength_m, transmission):
-    """写一个不依赖 openpyxl 的最小 xlsx，方便 Lumerical 嵌入 Python 直接使用。"""
+    """Write a minimal xlsx without openpyxl."""
     rows = [("Wavelength_nm", "Transmission_raw", "Transmission_abs2")]
     for wl, tr, tr_abs2 in zip(nm(wavelength_m), np.asarray(transmission), abs2(transmission)):
         raw = complex(tr)
@@ -585,45 +590,49 @@ def write_scan_plan(path, points):
 
 
 def write_manifest(path, rows):
-    fields = [
-        "index", "name", "status", "fsp", "xlsx", "png", "elapsed_s",
+    keys = [
+        "index", "name", "status", "retry_count", "quality_flags", "quality_reasons",
+        "solver_status", "solver_status_text", "autoshutoff_final",
+        "simulation_time_fs", "auto_shutoff_min", "mesh_accuracy", "dt_stability_factor",
+        "fsp", "xlsx", "png", "elapsed_s",
         "max_abs2", "max_wavelength_nm", "min_abs2", "min_wavelength_nm",
     ]
     with Path(path).open("w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
+        writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
 
-
 def write_structure_note(path, config, geometry, source_fsp, mode, points):
     pillars = geometry["pillars"]
     lines = []
-    lines.append("# 四柱簇结构状态说明\n")
-    lines.append("- 运行模式：{}".format(mode))
-    lines.append("- 源 FSP：{}".format(source_fsp))
-    lines.append("- 扰动名称：{}".format(config["PERTURBATION_NAME"]))
-    lines.append("- 降群路径：{}".format(config["GROUP_PATH"]))
-    lines.append("- Si 柱数量：{} 个".format(len(pillars)))
-    lines.append("- 母版柱半径：{:.3f} nm".format(nm(geometry["base_radius"])))
-    lines.append("- 母版柱中心：{}".format(", ".join(
+    lines.append("# 四柱簇结构状态说明")
+    lines.append("")
+    lines.append("- 运行模式: {}".format(mode))
+    lines.append("- 源 FSP: {}".format(source_fsp))
+    lines.append("- 扰动名称: {}".format(config["PERTURBATION_NAME"]))
+    lines.append("- 降群路径: {}".format(config["GROUP_PATH"]))
+    lines.append("- Si 柱数量: {} 个".format(len(pillars)))
+    lines.append("- 母版柱半径: {:.3f} nm".format(nm(geometry["base_radius"])))
+    lines.append("- 母版柱中心: {}".format(", ".join(
         "{}({:.1f}, {:.1f}) nm".format(p["label"], nm(p["x"]), nm(p["y"])) for p in pillars
     )))
-    lines.append("- Si 柱厚度：{:.3f} nm".format(nm(pillars[0]["zmax"] - pillars[0]["zmin"])))
-    lines.append("- SiO2 衬底：{:.3f} nm x {:.3f} nm，厚度 {:.3f} nm".format(
+    lines.append("- Si 柱厚度: {:.3f} nm".format(nm(pillars[0]["zmax"] - pillars[0]["zmin"])))
+    lines.append("- SiO2 衬底: {:.3f} nm x {:.3f} nm，厚度 {:.3f} nm".format(
         nm(geometry["substrate"]["x_span"]),
         nm(geometry["substrate"]["y_span"]),
         nm(geometry["substrate"]["z_max"] - geometry["substrate"]["z_min"]),
     ))
-    lines.append("- FDTD 区域：{:.3f} nm x {:.3f} nm，z {:.3f} nm 到 {:.3f} nm".format(
+    lines.append("- FDTD 区域: {:.3f} nm x {:.3f} nm，z {:.3f} nm 到 {:.3f} nm".format(
         nm(geometry["fdtd"]["x_span"]), nm(geometry["fdtd"]["y_span"]),
         nm(geometry["fdtd"]["z_min"]), nm(geometry["fdtd"]["z_max"])
     ))
     if points:
-        lines.append("- 扫描起止：{} -> {}".format(point_parameter_text(config, points[0]), point_parameter_text(config, points[-1])))
-    lines.append("- 扫描点数：{}".format(len(points)))
-    lines.append("\n## 重要保护规则\n")
-    lines.append("脚本不会修改 fsp 文件夹内的源 .fsp；每个扫描点均从 results 内的母版副本再次复制后再修改。")
+        lines.append("- 扫描起止: {} -> {}".format(point_parameter_text(config, points[0]), point_parameter_text(config, points[-1])))
+    lines.append("- 扫描点数: {}".format(len(points)))
+    lines.append("")
+    lines.append("## 源文件保护规则")
+    lines.append("脚本不会修改 fsp 文件夹内源 .fsp；每个扫描点都从 results 中母版副本复制后再修改。")
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -644,6 +653,10 @@ def parse_args(config):
     parser.add_argument("--preview", action="store_true")
     parser.add_argument("--max-points", type=int, default=None)
     parser.add_argument("--run-dir", default=None)
+    parser.add_argument("--auto-retry-max", type=int, default=None)
+    parser.add_argument("--disable-auto-retry", action="store_true")
+    parser.add_argument("--quality-t-limit", type=float, default=None)
+    parser.add_argument("--quality-ripple-limit", type=float, default=None)
     args = parser.parse_args()
     args.prompted_mode = False
     if args.test:
@@ -655,7 +668,7 @@ def parse_args(config):
     if args.mode == "ask":
         args.prompted_mode = True
         print("")
-        print("请选择四柱簇 {} 脚本运行模式：".format(config["PERTURBATION_NAME"]))
+        print("请选择 {} {} 脚本运行模式：".format(config["STRUCTURE_CN_NAME"], config["PERTURBATION_NAME"]))
         print("  1 = 测试模式：真实仿真前 {} 个点".format(config["TEST_POINT_COUNT"]))
         print("  2 = 完整真实仿真")
         print("  3 = 预览模式：只生成扫描计划，不仿真")
@@ -663,6 +676,14 @@ def parse_args(config):
         args.mode = {"1": "test", "2": "full", "3": "preview"}.get(choice)
         if args.mode is None:
             raise ValueError("只能输入 1、2 或 3。")
+    if args.auto_retry_max is not None:
+        config["AUTO_RETRY_MAX"] = int(args.auto_retry_max)
+    if args.disable_auto_retry:
+        config["AUTO_RETRY_ENABLED"] = False
+    if args.quality_t_limit is not None:
+        config["QUALITY_T_LIMIT"] = float(args.quality_t_limit)
+    if args.quality_ripple_limit is not None:
+        config["QUALITY_RIPPLE_LIMIT"] = float(args.quality_ripple_limit)
     return args
 
 
@@ -697,10 +718,9 @@ def maybe_ask_fdtd_runtime_overrides(config):
         config[key] = int(value) if key == "MESH_ACCURACY" else value
     if config.get("SIMULATION_TIME_FS") is not None:
         config["SIMULATION_TIME_S"] = float(config["SIMULATION_TIME_FS"]) * 1e-15
-
-
 def run(config):
     args = parse_args(config)
+    normalize_autotune_config(config)
     mode = args.mode
     if mode in ("test", "full") and getattr(args, "prompted_mode", False):
         maybe_ask_fdtd_runtime_overrides(config)
@@ -725,71 +745,159 @@ def run(config):
     print("results 工作母版 FSP: {}".format(result_master))
     print("Lumerical 英文镜像母版 FSP: {}".format(ascii_master))
     print("输出批次目录: {}".format(run_dir))
-    print("四柱中心: {}".format(", ".join("{}=({:.1f},{:.1f}) nm".format(
-        p["label"], nm(p["x"]), nm(p["y"])) for p in geometry["pillars"])))
-    print("母版柱半径: {:.3f} nm；柱厚度: {:.3f} nm".format(
-        nm(geometry["base_radius"]), nm(geometry["pillars"][0]["zmax"] - geometry["pillars"][0]["zmin"])))
-    print("衬底尺寸: {:.3f} nm x {:.3f} nm, 厚度 {:.3f} nm".format(
-        nm(geometry["substrate"]["x_span"]), nm(geometry["substrate"]["y_span"]),
-        nm(geometry["substrate"]["z_max"] - geometry["substrate"]["z_min"])))
     print("扰动: {}；降群路径: {}".format(config["PERTURBATION_NAME"], config["GROUP_PATH"]))
     print("计划仿真点数: {}".format(len(points)))
-    print("扫描计划已保存: {}".format(folders["plan"] / "scan_points.csv"))
-    print("结构说明已保存: {}".format(run_dir / "结构状态说明.md"))
 
     if mode == "preview":
-        print("预览模式结束：没有运行真实 FDTD，也没有生成单点 .fsp。")
+        print("预览模式结束：没有运行真实 FDTD。")
         return
 
-    manifest_rows = []
+    rows = []
     total_start = time.time()
-    for idx, point in enumerate(points, start=1):
+    max_retry = int(config.get("AUTO_RETRY_MAX", 2)) if config.get("AUTO_RETRY_ENABLED", True) else 0
+    base_runtime_config = clone_runtime_config(config)
+    retry_history_path = folders["logs"] / "retry_history.csv"
+
+    for idx, point in enumerate(points, 1):
         assert_source_unchanged(source_fsp, source_hash)
         paths = result_paths(folders, point)
-        ascii_point = ascii_root / (point["name"] + ".fsp")
-        shutil.copy2(str(ascii_master), str(ascii_point))
+        ascii_point_base = ascii_root / (point["name"] + ".fsp")
+        shutil.copy2(str(ascii_master), str(ascii_point_base))
 
         print("[{}/{}] 开始仿真：{}".format(idx, len(points), point["name"]))
-        print("    当前参数: {}；剩余组数(含当前): {}/{}".format(
-            point_parameter_text(config, point), len(points) - idx + 1, len(points)))
-        point_start = time.time()
-        fdtd = lumapi.FDTD(hide=True)
-        fdtd.load(str(ascii_point))
-        apply_point(fdtd, config, point)
-        fdtd.save(str(ascii_point))
-        fdtd.run()
-        wavelength_m, transmission = extract_transmission(fdtd, config["T_MONITOR_NAME"])
-        fdtd.save(str(ascii_point))
-        fdtd.close()
 
-        shutil.copy2(str(ascii_point), str(paths["fsp"]))
-        write_xlsx(paths["xlsx"], wavelength_m, transmission)
-        save_abs2_plot(paths["png"], config, point, wavelength_m, transmission)
+        final_quality = None
+        final_summary = {"max": None}
+        final_elapsed = 0.0
+        final_solver_info = {}
+        final_runtime_config = clone_runtime_config(base_runtime_config)
+        accepted = False
+        wavelength_m = None
+        transmission = None
+        final_ascii_point = ascii_point_base
+        attempt = 0
 
-        elapsed = time.time() - point_start
-        summary = spectrum_summary(wavelength_m, transmission)
-        avg_elapsed = (time.time() - total_start) / float(idx)
-        eta = avg_elapsed * (len(points) - idx)
-        print("    完成并保存，用时 {}；预计剩余 {}".format(format_duration(elapsed), format_duration(eta)))
-        if summary["max"] is not None:
-            print("    本点谱信息: max |T|^2={:.6g} @ {:.3f} nm；min |T|^2={:.6g} @ {:.3f} nm".format(
-                summary["max"], summary["max_nm"], summary["min"], summary["min_nm"]))
-        print("    保存: {}, {}, {}".format(paths["fsp"].name, paths["png"].name, paths["xlsx"].name))
-        manifest_rows.append({
+        for attempt in range(0, max_retry + 1):
+            runtime_config = final_runtime_config if attempt == 0 else next_retry_config(
+                base_runtime_config, final_runtime_config, final_quality or {"flags": []}, attempt
+            )
+            final_runtime_config = runtime_config
+            attempt_suffix = "" if attempt == 0 else "_retry{:02d}".format(attempt)
+            ascii_point = ascii_root / (point["name"] + attempt_suffix + ".fsp")
+            if attempt == 0:
+                shutil.copy2(str(ascii_point_base), str(ascii_point))
+            else:
+                shutil.copy2(str(ascii_master), str(ascii_point))
+            final_ascii_point = ascii_point
+
+            print("  尝试 {}/{}：{}".format(attempt, max_retry, runtime_profile_text(runtime_config)))
+            start = time.time()
+            fdtd = None
+            solver_info = {}
+            quality = None
+            wavelength_m = None
+            transmission = None
+            try:
+                fdtd = lumapi.FDTD(hide=True)
+                fdtd.load(str(ascii_point))
+                apply_point(fdtd, runtime_config, point)
+                fdtd.save(str(ascii_point))
+                fdtd.run()
+                solver_info = extract_solver_info(fdtd, runtime_config.get("FDTD_OBJECT_NAME", "FDTD"))
+                wavelength_m, transmission = extract_transmission(fdtd, runtime_config["T_MONITOR_NAME"])
+                fdtd.save(str(ascii_point))
+                quality = evaluate_spectrum_quality(wavelength_m, transmission, solver_info, runtime_config)
+            except Exception as exc:
+                quality = {
+                    "accepted": False,
+                    "status": "need_retry",
+                    "flags": ["exception"],
+                    "reasons": [repr(exc)],
+                    "tmax": "",
+                    "tmin": "",
+                    "ripple_score": "",
+                    "sign_changes": "",
+                }
+            finally:
+                try:
+                    if fdtd is not None:
+                        fdtd.close()
+                except Exception:
+                    pass
+
+            elapsed = time.time() - start
+            final_elapsed = elapsed
+            final_quality = quality
+            final_solver_info = solver_info
+            append_retry_history(retry_history_path, {
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "point_index": point["index"],
+                "point_name": point["name"],
+                "attempt": attempt,
+                "accepted": quality.get("accepted"),
+                "quality_status": quality.get("status"),
+                "flags": quality.get("flags"),
+                "reasons": quality.get("reasons"),
+                "tmax": quality.get("tmax"),
+                "tmin": quality.get("tmin"),
+                "ripple_score": quality.get("ripple_score"),
+                "sign_changes": quality.get("sign_changes"),
+                "solver_status": solver_info.get("solver_status", ""),
+                "solver_status_text": solver_info.get("solver_status_text", ""),
+                "autoshutoff_final": solver_info.get("autoshutoff_final", ""),
+                "simulation_time_fs": runtime_config.get("SIMULATION_TIME_FS"),
+                "auto_shutoff_min": runtime_config.get("AUTO_SHUTOFF_MIN"),
+                "mesh_accuracy": runtime_config.get("MESH_ACCURACY"),
+                "dt_stability_factor": runtime_config.get("DT_STABILITY_FACTOR"),
+                "elapsed_s": "{:.3f}".format(elapsed),
+                "fsp": str(ascii_point),
+                "xlsx": str(paths["xlsx"]),
+                "png": str(paths["png"]),
+            })
+
+            if quality.get("accepted"):
+                accepted = True
+                break
+
+        try:
+            shutil.copy2(str(final_ascii_point), str(paths["fsp"]))
+        except Exception:
+            pass
+
+        if wavelength_m is not None and transmission is not None:
+            write_xlsx(paths["xlsx"], wavelength_m, transmission)
+            save_abs2_plot(paths["png"], final_runtime_config, point, wavelength_m, transmission)
+            final_summary = spectrum_summary(wavelength_m, transmission)
+
+        row_status = final_quality.get("status") if final_quality else "unknown"
+        if not accepted:
+            row_status = "failed_quarantined"
+
+        rows.append({
             "index": point["index"],
             "name": point["name"],
-            "status": "done",
+            "status": row_status,
+            "retry_count": max(0, attempt),
+            "quality_flags": ";".join(final_quality.get("flags") or []) if final_quality else "",
+            "quality_reasons": ";".join(final_quality.get("reasons") or []) if final_quality else "",
+            "solver_status": final_solver_info.get("solver_status", ""),
+            "solver_status_text": final_solver_info.get("solver_status_text", ""),
+            "autoshutoff_final": final_solver_info.get("autoshutoff_final", ""),
+            "simulation_time_fs": final_runtime_config.get("SIMULATION_TIME_FS"),
+            "auto_shutoff_min": final_runtime_config.get("AUTO_SHUTOFF_MIN"),
+            "mesh_accuracy": final_runtime_config.get("MESH_ACCURACY"),
+            "dt_stability_factor": final_runtime_config.get("DT_STABILITY_FACTOR"),
             "fsp": str(paths["fsp"]),
             "xlsx": str(paths["xlsx"]),
             "png": str(paths["png"]),
-            "elapsed_s": "{:.3f}".format(elapsed),
-            "max_abs2": "" if summary["max"] is None else "{:.18e}".format(summary["max"]),
-            "max_wavelength_nm": "" if summary["max_nm"] is None else "{:.9f}".format(summary["max_nm"]),
-            "min_abs2": "" if summary["min"] is None else "{:.18e}".format(summary["min"]),
-            "min_wavelength_nm": "" if summary["min_nm"] is None else "{:.9f}".format(summary["min_nm"]),
+            "elapsed_s": "{:.3f}".format(final_elapsed),
+            "max_abs2": "" if final_summary.get("max") is None else "{:.18e}".format(final_summary["max"]),
+            "max_wavelength_nm": "" if final_summary.get("max") is None else "{:.9f}".format(final_summary["max_nm"]),
+            "min_abs2": "" if final_summary.get("max") is None else "{:.18e}".format(final_summary["min"]),
+            "min_wavelength_nm": "" if final_summary.get("max") is None else "{:.9f}".format(final_summary["min_nm"]),
         })
-        write_manifest(run_dir / "manifest.csv", manifest_rows)
+        write_manifest(run_dir / "manifest.csv", rows)
         assert_source_unchanged(source_fsp, source_hash)
 
-    print("全部完成。总用时: {}".format(format_duration(time.time() - total_start)))
-    print("总索引 manifest: {}".format(run_dir / "manifest.csv"))
+    print("全部完成。总用时 {}".format(format_duration(time.time() - total_start)))
+

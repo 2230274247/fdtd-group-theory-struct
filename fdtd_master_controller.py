@@ -44,7 +44,17 @@ CONTROLLER_LOG_ROOT = STRUCT_ROOT / "controller_logs"
 PYTHON_EXE = sys.executable
 ENABLE_COLOR_OUTPUT = True
 CHILD_OUTPUT_ENCODING = getattr(sys.stdout, "encoding", None) or locale.getpreferredencoding(False) or "utf-8"
-FDTD_RUNTIME_KEYS = ("SIMULATION_TIME_FS", "AUTO_SHUTOFF_MIN", "MESH_ACCURACY", "DT_STABILITY_FACTOR")
+FDTD_RUNTIME_KEYS = (
+    "SIMULATION_TIME_FS",
+    "AUTO_SHUTOFF_MIN",
+    "MESH_ACCURACY",
+    "DT_STABILITY_FACTOR",
+    "AUTO_RETRY_ENABLED",
+    "AUTO_RETRY_MAX",
+    "QUALITY_T_LIMIT",
+    "QUALITY_RIPPLE_LIMIT",
+    "QUALITY_MIN_POINTS",
+)
 LEGACY_FDTD_RUNTIME_KEYS = ("SIMULATION_TIME_S",)
 
 # 总控认为“明显危险”的临时输入；超过后会二次确认。
@@ -664,6 +674,11 @@ def replace_assignments(text, replacements):
         "AUTO_SHUTOFF_MIN": ("auto_shutoff_min", "AUTO_SHUTOFF_MIN"),
         "MESH_ACCURACY": ("mesh_accuracy", "MESH_ACCURACY"),
         "DT_STABILITY_FACTOR": ("dt_stability_factor", "DT_STABILITY_FACTOR"),
+        "AUTO_RETRY_ENABLED": ("auto_retry_enabled", "AUTO_RETRY_ENABLED"),
+        "AUTO_RETRY_MAX": ("auto_retry_max", "AUTO_RETRY_MAX"),
+        "QUALITY_T_LIMIT": ("quality_t_limit", "QUALITY_T_LIMIT"),
+        "QUALITY_RIPPLE_LIMIT": ("quality_ripple_limit", "QUALITY_RIPPLE_LIMIT"),
+        "QUALITY_MIN_POINTS": ("quality_min_points", "QUALITY_MIN_POINTS"),
     }
     pending_config_updates = {}
     for name, value in replacements.items():
@@ -1111,6 +1126,10 @@ def main():
     parser.add_argument("--all", action="store_true", help="Run all discovered child scripts non-interactively")
     parser.add_argument("--missing-only", action="store_true", help="Run only scripts without a usable latest result for the selected mode")
     parser.add_argument("--overrides-json", default="", help="JSON string or JSON file path for temporary assignment overrides")
+    parser.add_argument("--auto-retry-max", type=int, default=None, help="Global AUTO_RETRY_MAX override for selected scripts")
+    parser.add_argument("--quality-t-limit", type=float, default=None, help="Global QUALITY_T_LIMIT override for selected scripts")
+    parser.add_argument("--quality-ripple-limit", type=float, default=None, help="Global QUALITY_RIPPLE_LIMIT override for selected scripts")
+    parser.add_argument("--disable-auto-retry", action="store_true", help="Global AUTO_RETRY_ENABLED=False override for selected scripts")
     parser.add_argument("--child-timeout-s", type=float, default=3600.0, help="Kill a child script and its FDTD process tree after this many seconds; 0 disables")
     parser.add_argument("--yes", action="store_true", help="Skip final confirmation for non-interactive/web runs")
     args = parser.parse_args()
@@ -1147,6 +1166,16 @@ def main():
     print("=" * 96)
 
     overrides = parse_overrides_json(args.overrides_json) if args.overrides_json else ({} if noninteractive else ask_overrides(selected))
+    controller_extra_overrides = {}
+    if args.auto_retry_max is not None:
+        controller_extra_overrides["AUTO_RETRY_MAX"] = int(args.auto_retry_max)
+    if args.quality_t_limit is not None:
+        controller_extra_overrides["QUALITY_T_LIMIT"] = float(args.quality_t_limit)
+    if args.quality_ripple_limit is not None:
+        controller_extra_overrides["QUALITY_RIPPLE_LIMIT"] = float(args.quality_ripple_limit)
+    if args.disable_auto_retry:
+        controller_extra_overrides["AUTO_RETRY_ENABLED"] = False
+
     if "*" in overrides:
         wildcard = overrides.pop("*")
         for item in selected:
@@ -1154,6 +1183,12 @@ def main():
             merged = dict(wildcard)
             merged.update(existing)
             overrides[str(item["script"])] = merged
+    if controller_extra_overrides:
+        for item in selected:
+            key = str(item["script"])
+            existing = dict(overrides.get(key, {}))
+            existing.update(controller_extra_overrides)
+            overrides[key] = existing
     print("\n最终将运行 {} 个脚本；模式：{}；方式：{}。".format(len(selected), child_mode, run_style))
     if overrides:
         print("已设置临时参数覆盖：")
