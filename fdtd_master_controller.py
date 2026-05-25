@@ -107,6 +107,28 @@ def safe_console_print(text, end=""):
         print(safe_text, end=end)
 
 
+def ensure_numpy_available(python_exe):
+    """Ensure numpy exists in the same interpreter used to launch child scripts."""
+    probe_cmd = [str(python_exe), "-c", "import numpy; print(numpy.__version__)"]
+    try:
+        out = subprocess.check_output(probe_cmd, stderr=subprocess.STDOUT, universal_newlines=True, encoding="utf-8", errors="replace")
+        ver = (out or "").strip().splitlines()[-1] if out else "unknown"
+        print("依赖检查：numpy 已可用（{}）".format(ver))
+        return
+    except Exception as exc:
+        print("依赖检查：当前解释器缺少 numpy，准备自动安装。")
+        print("  解释器：{}".format(python_exe))
+        print("  探测错误：{}".format(exc))
+    install_cmd = [str(python_exe), "-m", "pip", "install", "numpy"]
+    print("执行安装命令：{}".format(" ".join(install_cmd)))
+    rc = subprocess.call(install_cmd)
+    if rc != 0:
+        raise RuntimeError("numpy 安装失败（exit={}），请手动在该解释器安装后重试。".format(rc))
+    out = subprocess.check_output(probe_cmd, stderr=subprocess.STDOUT, universal_newlines=True, encoding="utf-8", errors="replace")
+    ver = (out or "").strip().splitlines()[-1] if out else "unknown"
+    print("依赖检查：numpy 安装完成（{}）".format(ver))
+
+
 def is_candidate_script(path):
     if path.suffix.lower() != ".py":
         return False
@@ -1092,6 +1114,7 @@ def main():
     parser.add_argument("--child-timeout-s", type=float, default=3600.0, help="Kill a child script and its FDTD process tree after this many seconds; 0 disables")
     parser.add_argument("--yes", action="store_true", help="Skip final confirmation for non-interactive/web runs")
     args = parser.parse_args()
+    ensure_numpy_available(PYTHON_EXE)
 
     cleanup_old_controller_runs()
     records = discover_scripts(STRUCT_ROOT)
