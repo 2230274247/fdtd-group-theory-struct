@@ -1,0 +1,11 @@
+{
+  "output_dir": "H:\\FDTD outcome\\struct\\群论_struct\\tests\\mock_outputs\\run_20260525_173738",
+  "manifest_csv": "H:\\FDTD outcome\\struct\\群论_struct\\tests\\mock_outputs\\run_20260525_173738\\04_logs\\manifest.csv",
+  "retry_history_csv": "H:\\FDTD outcome\\struct\\群论_struct\\tests\\mock_outputs\\run_20260525_173738\\04_logs\\retry_history.csv",
+  "quality_report_csv": "H:\\FDTD outcome\\struct\\群论_struct\\tests\\mock_outputs\\run_20260525_173738\\04_logs\\quality_report.csv",
+  "samples": [
+    "sample_A",
+    "sample_B",
+    "sample_C"
+  ]
+}

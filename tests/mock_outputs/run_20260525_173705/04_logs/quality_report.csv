@@ -1,0 +1,7 @@
+﻿sample,attempt,accepted,flags,runtime_profile
+sample_A,0,True,,simulation_time_fs=70.0; auto_shutoff_min=1e-05; mesh_accuracy=2; dt_stability_factor=0.99
+sample_B,0,False,transmission_gt_limit,simulation_time_fs=70.0; auto_shutoff_min=1e-05; mesh_accuracy=2; dt_stability_factor=0.99
+sample_B,1,True,,simulation_time_fs=126.0; auto_shutoff_min=1.0000000000000002e-06; mesh_accuracy=2; dt_stability_factor=0.99
+sample_C,0,False,transmission_gt_limit;ripple_spectrum,simulation_time_fs=70.0; auto_shutoff_min=1e-05; mesh_accuracy=2; dt_stability_factor=0.99
+sample_C,1,False,transmission_gt_limit,simulation_time_fs=175.0; auto_shutoff_min=1.0000000000000002e-06; mesh_accuracy=2; dt_stability_factor=0.99
+sample_C,2,False,transmission_gt_limit,simulation_time_fs=315.0; auto_shutoff_min=1.0000000000000002e-07; mesh_accuracy=3; dt_stability_factor=0.99
