@@ -10,6 +10,7 @@ import argparse
 import csv
 import hashlib
 import importlib.util
+import json
 import math
 import os
 import shutil
@@ -36,6 +37,9 @@ from fdtd_autotune_common import (
     clone_runtime_config,
     extract_solver_info,
     evaluate_spectrum_quality,
+    compute_badness_score,
+    init_retry_state,
+    should_continue_retry,
     next_retry_config,
     runtime_profile_text,
     append_retry_history,
@@ -138,6 +142,47 @@ def ensure_folders(run_dir):
     for folder in folders.values():
         folder.mkdir(parents=True, exist_ok=True)
     return folders
+
+
+def append_retry_history_with_feedback(path, row):
+    """
+    C6 stage-2 local writer:
+    keep legacy columns and persist additional feedback-loop fields.
+    """
+    append_retry_history(path, row)
+    path = Path(path)
+    try:
+        with path.open("r", newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            old_rows = list(reader)
+            old_fields = list(reader.fieldnames or [])
+    except Exception:
+        old_rows = []
+        old_fields = []
+    extra_fields = ["badness_score", "badness_reasons", "improvement_ratio", "decision_reason", "action"]
+    changed = False
+    for key in extra_fields:
+        if key not in old_fields:
+            old_fields.append(key)
+            changed = True
+    if not changed:
+        return
+    for r in old_rows:
+        for key in extra_fields:
+            if key not in r:
+                r[key] = ""
+    if old_rows:
+        last = old_rows[-1]
+        for key in extra_fields:
+            value = row.get(key, "")
+            if isinstance(value, (list, tuple)):
+                value = ";".join([str(x) for x in value])
+            last[key] = value
+    with path.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=old_fields)
+        writer.writeheader()
+        for r in old_rows:
+            writer.writerow(r)
 
 
 def ascii_work_root(config, run_dir):
@@ -409,6 +454,157 @@ def save_abs2_plot(path, config, point, wavelength_m, transmission):
     plt.close(fig)
 
 
+def write_diagnostic_json(path, data):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def write_diagnostic_xlsx(path, point, quality, solver_info, runtime_config):
+    rows = [
+        ("key", "value"),
+        ("point_name", point.get("name", "")),
+        ("point_index", point.get("index", "")),
+        ("point_value_nm", point.get("value_nm", "")),
+        ("quality_status", (quality or {}).get("status", "")),
+        ("quality_flags", ";".join((quality or {}).get("flags") or [])),
+        ("quality_reasons", ";".join((quality or {}).get("reasons") or [])),
+        ("tmax", (quality or {}).get("tmax", "")),
+        ("tmin", (quality or {}).get("tmin", "")),
+        ("ripple_score", (quality or {}).get("ripple_score", "")),
+        ("sign_changes", (quality or {}).get("sign_changes", "")),
+        ("solver_status", (solver_info or {}).get("solver_status", "")),
+        ("solver_status_text", (solver_info or {}).get("solver_status_text", "")),
+        ("autoshutoff_final", (solver_info or {}).get("autoshutoff_final", "")),
+        ("simulation_time_fs", (runtime_config or {}).get("SIMULATION_TIME_FS", "")),
+        ("auto_shutoff_min", (runtime_config or {}).get("AUTO_SHUTOFF_MIN", "")),
+        ("mesh_accuracy", (runtime_config or {}).get("MESH_ACCURACY", "")),
+        ("dt_stability_factor", (runtime_config or {}).get("DT_STABILITY_FACTOR", "")),
+    ]
+    sheet_rows = []
+    for r, row in enumerate(rows, 1):
+        ref_a = "A{}".format(r)
+        ref_b = "B{}".format(r)
+        cells = [
+            '<c r="{}" t="inlineStr"><is><t>{}</t></is></c>'.format(ref_a, escape(str(row[0]))),
+            '<c r="{}" t="inlineStr"><is><t>{}</t></is></c>'.format(ref_b, escape(str(row[1]))),
+        ]
+        sheet_rows.append('<row r="{}">{}</row>'.format(r, "".join(cells)))
+    sheet = '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>{}</sheetData></worksheet>'.format("".join(sheet_rows))
+    workbook = '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="diagnostic" sheetId="1" r:id="rId1"/></sheets></workbook>'
+    rels = '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'
+    wb_rels = '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'
+    ctype = '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(str(path), "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", ctype)
+        zf.writestr("_rels/.rels", rels)
+        zf.writestr("xl/workbook.xml", workbook)
+        zf.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet)
+
+
+def write_diagnostic_png(path, point, quality):
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(figsize=(8.6, 5.2), dpi=160)
+        ax.axis("off")
+        lines = [
+            "Diagnostic Snapshot",
+            "sample: {}".format(point.get("name", "")),
+            "index: {}".format(point.get("index", "")),
+            "delta_nm: {:.6f}".format(float(point.get("value_nm", 0.0))),
+            "status: {}".format((quality or {}).get("status", "")),
+            "flags: {}".format(",".join((quality or {}).get("flags") or [])),
+            "reasons: {}".format("; ".join((quality or {}).get("reasons") or [])),
+        ]
+        ax.text(0.02, 0.98, "\n".join(lines), va="top", ha="left", fontsize=10, family="monospace")
+        fig.tight_layout()
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(str(path))
+        plt.close(fig)
+    except Exception:
+        # Minimal 1x1 transparent PNG fallback
+        tiny_png = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0bIDATx\x9cc`\x00\x02\x00\x00\x05\x00\x01"
+            b"\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(tiny_png)
+
+
+def persist_attempt_artifacts(attempt_root, point, attempt, ascii_point, wavelength_m, transmission, quality, solver_info, runtime_config):
+    attempt_dir = Path(attempt_root) / point["name"] / "attempt_{:02d}".format(int(attempt))
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    fsp_path = attempt_dir / (point["name"] + ".fsp")
+    if ascii_point and Path(ascii_point).exists():
+        shutil.copy2(str(ascii_point), str(fsp_path))
+    diagnostic_json = attempt_dir / "diagnostic.json"
+    write_diagnostic_json(diagnostic_json, {
+        "point": point,
+        "attempt": attempt,
+        "quality": quality or {},
+        "solver_info": solver_info or {},
+        "runtime_config": runtime_config or {},
+        "has_transmission": bool(wavelength_m is not None and transmission is not None),
+    })
+    if wavelength_m is not None and transmission is not None:
+        xlsx_path = attempt_dir / "transmission_abs2.xlsx"
+        png_path = attempt_dir / "transmission_abs2.png"
+        write_xlsx(xlsx_path, wavelength_m, transmission)
+        save_abs2_plot(png_path, runtime_config, point, wavelength_m, transmission)
+    else:
+        xlsx_path = attempt_dir / "diagnostic.xlsx"
+        png_path = attempt_dir / "diagnostic.png"
+        write_diagnostic_xlsx(xlsx_path, point, quality, solver_info, runtime_config)
+        write_diagnostic_png(png_path, point, quality)
+    return {
+        "attempt_dir": attempt_dir,
+        "fsp": fsp_path if fsp_path.exists() else None,
+        "xlsx": xlsx_path,
+        "png": png_path,
+        "diagnostic_json": diagnostic_json,
+    }
+
+
+def finalize_sample_artifacts(paths, point, final_runtime_config, final_quality, final_solver_info, final_ascii_point, final_wavelength_m, final_transmission, attempt_artifact):
+    if final_ascii_point and Path(final_ascii_point).exists():
+        shutil.copy2(str(final_ascii_point), str(paths["fsp"]))
+    elif attempt_artifact and attempt_artifact.get("fsp") and Path(attempt_artifact["fsp"]).exists():
+        shutil.copy2(str(attempt_artifact["fsp"]), str(paths["fsp"]))
+
+    if final_wavelength_m is not None and final_transmission is not None:
+        write_xlsx(paths["xlsx"], final_wavelength_m, final_transmission)
+        save_abs2_plot(paths["png"], final_runtime_config, point, final_wavelength_m, final_transmission)
+    elif attempt_artifact is not None:
+        if attempt_artifact.get("xlsx") and Path(attempt_artifact["xlsx"]).exists():
+            shutil.copy2(str(attempt_artifact["xlsx"]), str(paths["xlsx"]))
+        else:
+            write_diagnostic_xlsx(paths["xlsx"], point, final_quality, final_solver_info, final_runtime_config)
+        if attempt_artifact.get("png") and Path(attempt_artifact["png"]).exists():
+            shutil.copy2(str(attempt_artifact["png"]), str(paths["png"]))
+        else:
+            write_diagnostic_png(paths["png"], point, final_quality)
+    else:
+        write_diagnostic_xlsx(paths["xlsx"], point, final_quality, final_solver_info, final_runtime_config)
+        write_diagnostic_png(paths["png"], point, final_quality)
+
+    diag_payload = {
+        "point": point,
+        "quality": final_quality or {},
+        "solver_info": final_solver_info or {},
+        "runtime_config": final_runtime_config or {},
+        "has_transmission": bool(final_wavelength_m is not None and final_transmission is not None),
+    }
+    write_diagnostic_json(paths["diagnostic_json"], diag_payload)
+
+
 def write_scan_plan(path, points):
     if not points:
         return
@@ -427,6 +623,9 @@ def write_manifest(path, rows):
         "simulation_time_fs", "auto_shutoff_min", "mesh_accuracy", "dt_stability_factor",
         "fsp", "xlsx", "png", "elapsed_s",
         "max_abs2", "max_wavelength_nm", "min_abs2", "min_wavelength_nm",
+        "final_fsp_exists", "final_xlsx_exists", "final_png_exists",
+        "diagnostic_json", "attempt_artifacts_dir",
+        "badness_score", "improvement_ratio", "decision_reason",
     ]
     with Path(path).open("w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=keys)
@@ -463,6 +662,7 @@ def result_paths(folders, point):
         "fsp": folders["fsp"] / (point["name"] + ".fsp"),
         "xlsx": folders["excel"] / (point["name"] + "_transmission_abs2.xlsx"),
         "png": folders["png"] / (point["name"] + "_transmission_abs2.png"),
+        "diagnostic_json": folders["logs"] / (point["name"] + "_diagnostic.json"),
     }
 
 
@@ -541,8 +741,8 @@ def maybe_ask_fdtd_runtime_overrides(config):
 
 
 def run(config):
+    config = normalize_autotune_config(config)
     args = parse_args(config)
-    normalize_autotune_config(config)
     mode = args.mode
     if mode in ("test", "full") and getattr(args, "prompted_mode", False):
         maybe_ask_fdtd_runtime_overrides(config)
@@ -578,9 +778,9 @@ def run(config):
 
     rows = []
     total_start = time.time()
-    max_retry = int(config.get("AUTO_RETRY_MAX", 2)) if config.get("AUTO_RETRY_ENABLED", True) else 0
     base_runtime_config = clone_runtime_config(config)
     retry_history_path = folders["logs"] / "retry_history.csv"
+    attempt_root = folders["logs"] / "attempt_artifacts"
 
     for idx, point in enumerate(points, 1):
         assert_source_unchanged(source_fsp, source_hash)
@@ -599,12 +799,17 @@ def run(config):
         wavelength_m = None
         transmission = None
         final_ascii_point = ascii_point_base
+        retry_state = init_retry_state(base_runtime_config)
         attempt = 0
+        next_runtime_config = clone_runtime_config(base_runtime_config)
+        last_badness_score = ""
+        last_improvement_ratio = ""
+        last_decision_reason = "init"
+        attempt_artifact = None
+        attempt_artifacts_dir = attempt_root / point["name"]
 
-        for attempt in range(0, max_retry + 1):
-            runtime_config = final_runtime_config if attempt == 0 else next_retry_config(
-                base_runtime_config, final_runtime_config, final_quality or {"flags": []}, attempt
-            )
+        while True:
+            runtime_config = clone_runtime_config(next_runtime_config)
             final_runtime_config = runtime_config
 
             attempt_suffix = "" if attempt == 0 else "_retry{:02d}".format(attempt)
@@ -617,7 +822,7 @@ def run(config):
                 shutil.copy2(str(ascii_master), str(ascii_point))
             final_ascii_point = ascii_point
 
-            print("  尝试 {}/{}：{}".format(attempt, max_retry, runtime_profile_text(runtime_config)))
+            print("  尝试 {}：{}".format(attempt, runtime_profile_text(runtime_config)))
             start = time.time()
             fdtd = None
             solver_info = {}
@@ -656,8 +861,35 @@ def run(config):
             final_elapsed = elapsed
             final_quality = quality
             final_solver_info = solver_info
+            badness_score = compute_badness_score(quality, solver_info, runtime_config)
+            previous_badness = retry_state.get("last_badness")
+            if previous_badness in (None, "", 0):
+                improvement_ratio = ""
+            else:
+                try:
+                    improvement_ratio = (float(previous_badness) - float(badness_score)) / max(abs(float(previous_badness)), 1e-12)
+                except Exception:
+                    improvement_ratio = ""
+            continue_retry, retry_state, decision_reason = should_continue_retry(
+                base_runtime_config, retry_state, attempt, quality, solver_info, elapsed
+            )
+            action = runtime_config.get("AUTO_RETRY_LAST_ACTION", "")
+            attempt_artifact = persist_attempt_artifacts(
+                attempt_root=attempt_root,
+                point=point,
+                attempt=attempt,
+                ascii_point=ascii_point,
+                wavelength_m=wavelength_m,
+                transmission=transmission,
+                quality=quality,
+                solver_info=solver_info,
+                runtime_config=runtime_config,
+            )
+            last_badness_score = "" if badness_score in ("", None) else "{:.6f}".format(float(badness_score))
+            last_improvement_ratio = "" if improvement_ratio == "" else "{:.6f}".format(float(improvement_ratio))
+            last_decision_reason = decision_reason
 
-            append_retry_history(retry_history_path, {
+            append_retry_history_with_feedback(retry_history_path, {
                 "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "point_index": point["index"],
                 "point_name": point["name"],
@@ -681,25 +913,52 @@ def run(config):
                 "fsp": str(ascii_point),
                 "xlsx": str(paths["xlsx"]),
                 "png": str(paths["png"]),
+                "badness_score": last_badness_score,
+                "badness_reasons": quality.get("flags") or [],
+                "improvement_ratio": last_improvement_ratio,
+                "decision_reason": last_decision_reason,
+                "action": action,
             })
 
-            print("  质量检测：{}；flags={}".format(quality.get("status"), ",".join(quality.get("flags") or [])))
+            print(
+                "  质量检测：status={}；flags={}；badness_score={:.6f}；improvement_ratio={}；decision_reason={}；action={}".format(
+                    quality.get("status"),
+                    ",".join(quality.get("flags") or []),
+                    float(badness_score),
+                    "" if improvement_ratio == "" else "{:.6f}".format(float(improvement_ratio)),
+                    decision_reason,
+                    action,
+                )
+            )
             if quality.get("accepted"):
                 accepted = True
                 break
-            if attempt < max_retry:
-                print("  当前点不收敛，暂停后续扰动点，优先重试当前点。")
-            else:
-                print("  超过最大自动重试次数，标记 failed_quarantined，继续下一个扰动点。")
+            if not continue_retry:
+                print("  停止重试：{}，标记 failed_quarantined，继续下一个扰动点。".format(decision_reason))
+                break
 
-        try:
-            shutil.copy2(str(final_ascii_point), str(paths["fsp"]))
-        except Exception:
-            pass
+            next_runtime_config = next_retry_config(
+                base_runtime_config,
+                final_runtime_config,
+                final_quality or {"flags": []},
+                attempt + 1,
+                retry_state=retry_state,
+            )
+            attempt += 1
+            print("  当前点不收敛，继续重试当前点。")
 
+        finalize_sample_artifacts(
+            paths=paths,
+            point=point,
+            final_runtime_config=final_runtime_config,
+            final_quality=final_quality,
+            final_solver_info=final_solver_info,
+            final_ascii_point=final_ascii_point,
+            final_wavelength_m=wavelength_m,
+            final_transmission=transmission,
+            attempt_artifact=attempt_artifact,
+        )
         if wavelength_m is not None and transmission is not None:
-            write_xlsx(paths["xlsx"], wavelength_m, transmission)
-            save_abs2_plot(paths["png"], final_runtime_config, point, wavelength_m, transmission)
             final_summary = spectrum_summary(wavelength_m, transmission)
         else:
             final_summary = {"max": None}
@@ -735,6 +994,14 @@ def run(config):
             "max_wavelength_nm": "" if final_summary.get("max") is None else "{:.9f}".format(final_summary["max_nm"]),
             "min_abs2": "" if final_summary.get("max") is None else "{:.18e}".format(final_summary["min"]),
             "min_wavelength_nm": "" if final_summary.get("max") is None else "{:.9f}".format(final_summary["min_nm"]),
+            "final_fsp_exists": str(Path(paths["fsp"]).exists()),
+            "final_xlsx_exists": str(Path(paths["xlsx"]).exists()),
+            "final_png_exists": str(Path(paths["png"]).exists()),
+            "diagnostic_json": str(paths["diagnostic_json"]),
+            "attempt_artifacts_dir": str(attempt_artifacts_dir),
+            "badness_score": last_badness_score,
+            "improvement_ratio": last_improvement_ratio,
+            "decision_reason": last_decision_reason,
         })
         write_manifest(run_dir / "manifest.csv", rows)
         assert_source_unchanged(source_fsp, source_hash)

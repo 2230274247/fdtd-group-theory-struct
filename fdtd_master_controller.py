@@ -50,7 +50,14 @@ FDTD_RUNTIME_KEYS = (
     "MESH_ACCURACY",
     "DT_STABILITY_FACTOR",
     "AUTO_RETRY_ENABLED",
+    "AUTO_RETRY_MODE",
     "AUTO_RETRY_MAX",
+    "AUTO_RETRY_HARD_CAP",
+    "AUTO_RETRY_PATIENCE",
+    "AUTO_RETRY_MIN_IMPROVE",
+    "AUTO_RETRY_WEAK_IMPROVE",
+    "AUTO_RETRY_TIME_BUDGET_S",
+    "AUTO_RETRY_MAX_SINGLE_RUN_S",
     "QUALITY_T_LIMIT",
     "QUALITY_RIPPLE_LIMIT",
     "QUALITY_MIN_POINTS",
@@ -674,11 +681,18 @@ def replace_assignments(text, replacements):
         "AUTO_SHUTOFF_MIN": ("auto_shutoff_min", "AUTO_SHUTOFF_MIN"),
         "MESH_ACCURACY": ("mesh_accuracy", "MESH_ACCURACY"),
         "DT_STABILITY_FACTOR": ("dt_stability_factor", "DT_STABILITY_FACTOR"),
-        "AUTO_RETRY_ENABLED": ("auto_retry_enabled", "AUTO_RETRY_ENABLED"),
-        "AUTO_RETRY_MAX": ("auto_retry_max", "AUTO_RETRY_MAX"),
-        "QUALITY_T_LIMIT": ("quality_t_limit", "QUALITY_T_LIMIT"),
-        "QUALITY_RIPPLE_LIMIT": ("quality_ripple_limit", "QUALITY_RIPPLE_LIMIT"),
-        "QUALITY_MIN_POINTS": ("quality_min_points", "QUALITY_MIN_POINTS"),
+        "AUTO_RETRY_ENABLED": ("auto_retry_enabled", "AUTO_RETRY_ENABLED", "autoretryenabled"),
+        "AUTO_RETRY_MODE": ("auto_retry_mode", "AUTO_RETRY_MODE", "autoretrymode"),
+        "AUTO_RETRY_MAX": ("auto_retry_max", "AUTO_RETRY_MAX", "autoretrymax"),
+        "AUTO_RETRY_HARD_CAP": ("auto_retry_hard_cap", "AUTO_RETRY_HARD_CAP", "autoretryhardcap"),
+        "AUTO_RETRY_PATIENCE": ("auto_retry_patience", "AUTO_RETRY_PATIENCE", "autoretrypatience"),
+        "AUTO_RETRY_MIN_IMPROVE": ("auto_retry_min_improve", "AUTO_RETRY_MIN_IMPROVE", "autoretryminimprove"),
+        "AUTO_RETRY_WEAK_IMPROVE": ("auto_retry_weak_improve", "AUTO_RETRY_WEAK_IMPROVE", "autoretryweakimprove"),
+        "AUTO_RETRY_TIME_BUDGET_S": ("auto_retry_time_budget_s", "AUTO_RETRY_TIME_BUDGET_S", "autoretrytimebudgets"),
+        "AUTO_RETRY_MAX_SINGLE_RUN_S": ("auto_retry_max_single_run_s", "AUTO_RETRY_MAX_SINGLE_RUN_S", "autoretrymaxsingleruns"),
+        "QUALITY_T_LIMIT": ("quality_t_limit", "QUALITY_T_LIMIT", "qualitytlimit"),
+        "QUALITY_RIPPLE_LIMIT": ("quality_ripple_limit", "QUALITY_RIPPLE_LIMIT", "qualityripplelimit"),
+        "QUALITY_MIN_POINTS": ("quality_min_points", "QUALITY_MIN_POINTS", "qualityminpoints"),
     }
     pending_config_updates = {}
     for name, value in replacements.items():
@@ -1126,9 +1140,16 @@ def main():
     parser.add_argument("--all", action="store_true", help="Run all discovered child scripts non-interactively")
     parser.add_argument("--missing-only", action="store_true", help="Run only scripts without a usable latest result for the selected mode")
     parser.add_argument("--overrides-json", default="", help="JSON string or JSON file path for temporary assignment overrides")
-    parser.add_argument("--auto-retry-max", type=int, default=None, help="Global AUTO_RETRY_MAX override for selected scripts")
+    parser.add_argument("--auto-retry-max", default=None, help="Global AUTO_RETRY_MAX override: adaptive | 0 | positive integer")
+    parser.add_argument("--auto-retry-mode", choices=["fixed", "adaptive"], default=None, help="Global AUTO_RETRY_MODE override")
+    parser.add_argument("--auto-retry-hard-cap", type=int, default=None, help="Global AUTO_RETRY_HARD_CAP override")
+    parser.add_argument("--auto-retry-patience", type=int, default=None, help="Global AUTO_RETRY_PATIENCE override")
+    parser.add_argument("--auto-retry-min-improve", type=float, default=None, help="Global AUTO_RETRY_MIN_IMPROVE override")
+    parser.add_argument("--auto-retry-time-budget-s", type=float, default=None, help="Global AUTO_RETRY_TIME_BUDGET_S override")
+    parser.add_argument("--auto-retry-max-single-run-s", type=float, default=None, help="Global AUTO_RETRY_MAX_SINGLE_RUN_S override")
     parser.add_argument("--quality-t-limit", type=float, default=None, help="Global QUALITY_T_LIMIT override for selected scripts")
     parser.add_argument("--quality-ripple-limit", type=float, default=None, help="Global QUALITY_RIPPLE_LIMIT override for selected scripts")
+    parser.add_argument("--quality-min-points", type=int, default=None, help="Global QUALITY_MIN_POINTS override for selected scripts")
     parser.add_argument("--disable-auto-retry", action="store_true", help="Global AUTO_RETRY_ENABLED=False override for selected scripts")
     parser.add_argument("--child-timeout-s", type=float, default=3600.0, help="Kill a child script and its FDTD process tree after this many seconds; 0 disables")
     parser.add_argument("--yes", action="store_true", help="Skip final confirmation for non-interactive/web runs")
@@ -1168,11 +1189,35 @@ def main():
     overrides = parse_overrides_json(args.overrides_json) if args.overrides_json else ({} if noninteractive else ask_overrides(selected))
     controller_extra_overrides = {}
     if args.auto_retry_max is not None:
-        controller_extra_overrides["AUTO_RETRY_MAX"] = int(args.auto_retry_max)
+        text = str(args.auto_retry_max).strip().lower()
+        if text == "adaptive":
+            controller_extra_overrides["AUTO_RETRY_MODE"] = "adaptive"
+            controller_extra_overrides["AUTO_RETRY_MAX"] = "adaptive"
+        else:
+            try:
+                v = int(float(args.auto_retry_max))
+            except ValueError:
+                raise ValueError("--auto-retry-max must be adaptive or a number")
+            controller_extra_overrides["AUTO_RETRY_MODE"] = "fixed"
+            controller_extra_overrides["AUTO_RETRY_MAX"] = max(0, v)
+    if args.auto_retry_mode is not None:
+        controller_extra_overrides["AUTO_RETRY_MODE"] = str(args.auto_retry_mode)
+    if args.auto_retry_hard_cap is not None:
+        controller_extra_overrides["AUTO_RETRY_HARD_CAP"] = int(args.auto_retry_hard_cap)
+    if args.auto_retry_patience is not None:
+        controller_extra_overrides["AUTO_RETRY_PATIENCE"] = int(args.auto_retry_patience)
+    if args.auto_retry_min_improve is not None:
+        controller_extra_overrides["AUTO_RETRY_MIN_IMPROVE"] = float(args.auto_retry_min_improve)
+    if args.auto_retry_time_budget_s is not None:
+        controller_extra_overrides["AUTO_RETRY_TIME_BUDGET_S"] = float(args.auto_retry_time_budget_s)
+    if args.auto_retry_max_single_run_s is not None:
+        controller_extra_overrides["AUTO_RETRY_MAX_SINGLE_RUN_S"] = float(args.auto_retry_max_single_run_s)
     if args.quality_t_limit is not None:
         controller_extra_overrides["QUALITY_T_LIMIT"] = float(args.quality_t_limit)
     if args.quality_ripple_limit is not None:
         controller_extra_overrides["QUALITY_RIPPLE_LIMIT"] = float(args.quality_ripple_limit)
+    if args.quality_min_points is not None:
+        controller_extra_overrides["QUALITY_MIN_POINTS"] = int(args.quality_min_points)
     if args.disable_auto_retry:
         controller_extra_overrides["AUTO_RETRY_ENABLED"] = False
 

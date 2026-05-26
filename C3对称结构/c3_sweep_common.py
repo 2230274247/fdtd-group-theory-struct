@@ -1,13 +1,16 @@
 ﻿# -*- coding: utf-8 -*-
 """
 C3 姣嶇粨鏋勬壈鍔ㄦ壂鎻忓叕鍏辨ā鍧椼€?
-鏈ā鍧楀彧璐熻矗鈥滃鍒舵瘝鐗?-> 淇敼鍓湰 -> 杩愯浠跨湡 -> 淇濆瓨缁撴灉鈥濈殑閫氱敤娴佺▼銆?婧?fsp 鏂囦欢澶逛腑鐨?.fsp 姘歌繙鍙锛屼笉浼氳 save 鎴?setnamed 鍐欏洖銆?"""
+鐩綍瑙勫垯娌跨敤鍓嶉潰鎵€鏈夎剼鏈細
+- 鍏ュ彛鑴氭湰鏀惧湪 姣嶇粨鏋?coding/鎵板姩鍚?run_*.py锛?- 缁撴灉鏀惧湪 姣嶇粨鏋?results/鎵板姩鍚?run_妯″紡_鏃堕棿鎴?锛?- 婧?fsp 鏂囦欢澶瑰唴鐨?.fsp 姘镐笉鍐欏叆锛屽彧澶嶅埗銆?"""
+
 from __future__ import print_function
 
 import argparse
 import csv
 import hashlib
 import importlib.util
+import json
 import math
 import os
 import shutil
@@ -34,20 +37,20 @@ from fdtd_autotune_common import (
     clone_runtime_config,
     extract_solver_info,
     evaluate_spectrum_quality,
+    compute_badness_score,
+    init_retry_state,
+    should_continue_retry,
     next_retry_config,
     runtime_profile_text,
     append_retry_history,
 )
+
 
 def nm(value_m):
     arr = np.asarray(value_m)
     if arr.shape == ():
         return float(arr) * 1e9
     return arr * 1e9
-
-
-def um_from_nm(value_nm):
-    return float(value_nm) / 1000.0
 
 
 def chinese_timestamp():
@@ -86,16 +89,16 @@ def file_sha256(path):
 
 def assert_source_unchanged(source_fsp, expected_hash):
     if file_sha256(source_fsp) != expected_hash:
-        raise RuntimeError("婧?FSP 鏂囦欢鍙戠敓鍙樺寲锛岃剼鏈凡鍋滄锛岄伩鍏嶈鏀规簮鏂囦欢锛歿}".format(source_fsp))
+        raise RuntimeError("婧?FSP 鏂囦欢鍙戠敓鍙樺寲锛屼负閬垮厤璇敼婧愭枃浠讹紝鑴氭湰鍋滄锛歿}".format(source_fsp))
 
 
 def import_lumapi(lumerical_root):
     api_dir = Path(lumerical_root) / "api" / "python"
     bin_dir = Path(lumerical_root) / "bin"
     for p in (api_dir, bin_dir):
-        os.environ["PATH"] = str(p) + os.pathsep + os.environ.get("PATH", "")
         if hasattr(os, "add_dll_directory"):
             os.add_dll_directory(str(p))
+        os.environ["PATH"] = str(p) + os.pathsep + os.environ.get("PATH", "")
     lumapi_file = api_dir / "lumapi.py"
     spec = importlib.util.spec_from_file_location("lumapi", str(lumapi_file))
     if spec is None or spec.loader is None:
@@ -108,8 +111,9 @@ def import_lumapi(lumerical_root):
 
 def find_source_fsp(structure_root):
     files = sorted((Path(structure_root) / "fsp").glob("*.fsp"))
-    if not files:
-        raise RuntimeError("没有在 fsp 文件夹中找到 .fsp 文件。")
+    if len(files) == 0:
+        raise RuntimeError("没有在 fsp 文件夹内找到 .fsp。")
+    # 若存在多个 .fsp，优先使用最新文件。
     return sorted(files, key=lambda p: (p.name, p.stat().st_mtime), reverse=True)[0]
 
 
@@ -138,6 +142,47 @@ def ensure_folders(run_dir):
     for folder in folders.values():
         folder.mkdir(parents=True, exist_ok=True)
     return folders
+
+
+def append_retry_history_with_feedback(path, row):
+    """
+    C6 stage-2 local writer:
+    keep legacy columns and persist additional feedback-loop fields.
+    """
+    append_retry_history(path, row)
+    path = Path(path)
+    try:
+        with path.open("r", newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            old_rows = list(reader)
+            old_fields = list(reader.fieldnames or [])
+    except Exception:
+        old_rows = []
+        old_fields = []
+    extra_fields = ["badness_score", "badness_reasons", "improvement_ratio", "decision_reason", "action"]
+    changed = False
+    for key in extra_fields:
+        if key not in old_fields:
+            old_fields.append(key)
+            changed = True
+    if not changed:
+        return
+    for r in old_rows:
+        for key in extra_fields:
+            if key not in r:
+                r[key] = ""
+    if old_rows:
+        last = old_rows[-1]
+        for key in extra_fields:
+            value = row.get(key, "")
+            if isinstance(value, (list, tuple)):
+                value = ";".join([str(x) for x in value])
+            last[key] = value
+    with path.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=old_fields)
+        writer.writeheader()
+        for r in old_rows:
+            writer.writerow(r)
 
 
 def ascii_work_root(config, run_dir):
@@ -195,44 +240,49 @@ def auto_step(start, stop, manual, enabled, target, step_min, step_max):
     return max(float(step_min), min(float(step_max), raw))
 
 
+def read_basic_geometry(fdtd, config):
+    g = {"objects": {}}
+    for name in (config.get("OBJECT_NAME"), "Si_outer_ring", "air_inner_ring", "SiO2_substrate", "FDTD"):
+        if not name:
+            continue
+        try:
+            count = int(fdtd.getnamednumber(name))
+        except Exception:
+            count = 0
+        arr = []
+        for i in range(1, count + 1):
+            d = {"index": i}
+            for p in ("x", "y", "x span", "y span", "z min", "z max", "z span", "radius", "rotation 1"):
+                try:
+                    d[p] = float(getnamed(fdtd, name, p, i))
+                except Exception:
+                    pass
+            arr.append(d)
+        if arr:
+            g["objects"][name] = arr
+    return g
+
+
 def build_scan_points(config, mode, max_points=None):
-    unit = config.get("SCAN_UNIT", "nm")
     label = safe_token(config["SCAN_LABEL"])
     value_name = safe_token(config["VALUE_NAME"])
     stem = label if label == value_name or label.endswith("_" + value_name) else "{}_{}".format(label, value_name)
-    if unit == "deg":
-        start = float(config["SCAN_START_DEG"])
-        stop = float(config["SCAN_STOP_DEG"])
-        step = auto_step(
-            start, stop, float(config["SCAN_STEP_DEG"]), bool(config["AUTO_SCAN_STEP"]),
-            int(config["TARGET_SCAN_POINTS"]), float(config["SCAN_STEP_MIN_DEG"]), float(config["SCAN_STEP_MAX_DEG"])
-        )
-        points = []
-        for i, value in enumerate(frange(start, stop, step)):
-            points.append({
-                "index": i,
-                "name": "{:04d}_{}_{:+.3f}deg".format(i, stem, value),
-                "value": value,
-                "value_deg": value,
-                "step_deg": step,
-            })
-    else:
-        start = float(config["SCAN_START_NM"]) * 1e-9
-        stop = float(config["SCAN_STOP_NM"]) * 1e-9
-        step = auto_step(
-            start, stop, float(config["SCAN_STEP_NM"]) * 1e-9, bool(config["AUTO_SCAN_STEP"]),
-            int(config["TARGET_SCAN_POINTS"]), float(config["SCAN_STEP_MIN_NM"]) * 1e-9,
-            float(config["SCAN_STEP_MAX_NM"]) * 1e-9
-        )
-        points = []
-        for i, value in enumerate(frange(start, stop, step)):
-            points.append({
-                "index": i,
-                "name": "{:04d}_{}_{:.3f}nm".format(i, stem, nm(value)),
-                "value": value,
-                "value_nm": nm(value),
-                "step_nm": nm(step),
-            })
+    start = float(config["SCAN_START_NM"]) * 1e-9
+    stop = float(config["SCAN_STOP_NM"]) * 1e-9
+    step = auto_step(
+        start, stop, float(config["SCAN_STEP_NM"]) * 1e-9,
+        bool(config["AUTO_SCAN_STEP"]), int(config["TARGET_SCAN_POINTS"]),
+        float(config["SCAN_STEP_MIN_NM"]) * 1e-9, float(config["SCAN_STEP_MAX_NM"]) * 1e-9,
+    )
+    points = []
+    for i, value in enumerate(frange(start, stop, step)):
+        points.append({
+            "index": i,
+            "name": "{:04d}_{}_{:.3f}nm".format(i, stem, nm(value)),
+            "value": value,
+            "value_nm": nm(value),
+            "step_nm": nm(step),
+        })
     if mode == "test":
         points = points[:int(config["TEST_POINT_COUNT"])]
     if max_points is not None:
@@ -278,23 +328,17 @@ def apply_point(fdtd, config, point):
     if kind == "set_radius":
         for idx in config["TARGET_INDICES"]:
             setnamed(fdtd, obj, "radius", v, idx)
-            try:
-                setnamed(fdtd, obj, "radius 2", v, idx)
-            except Exception:
-                pass
     elif kind == "set_x_span":
         for idx in config["TARGET_INDICES"]:
             setnamed(fdtd, obj, "x span", v, idx)
     elif kind == "set_y_span":
         for idx in config["TARGET_INDICES"]:
             setnamed(fdtd, obj, "y span", v, idx)
-    elif kind == "scale_xy_span":
+    elif kind == "scale_y_span":
         scale = v / (float(config["BASE_REFERENCE_NM"]) * 1e-9)
         for idx in config["TARGET_INDICES"]:
-            old_x = float(getnamed(fdtd, obj, "x span", idx))
-            old_y = float(getnamed(fdtd, obj, "y span", idx))
-            setnamed(fdtd, obj, "x span", old_x * scale, idx)
-            setnamed(fdtd, obj, "y span", old_y * scale, idx)
+            old = float(getnamed(fdtd, obj, "y span", idx))
+            setnamed(fdtd, obj, "y span", old * scale, idx)
     elif kind == "offset_single":
         idx = int(config["TARGET_INDICES"][0])
         x0 = float(getnamed(fdtd, obj, "x", idx))
@@ -302,10 +346,24 @@ def apply_point(fdtd, config, point):
         x, y = radial_offset(x0, y0, v)
         setnamed(fdtd, obj, "x", x, idx)
         setnamed(fdtd, obj, "y", y, idx)
-    elif kind == "set_rotation_delta":
-        for idx in config["TARGET_INDICES"]:
-            base = float(getnamed(fdtd, obj, "rotation 1", idx))
-            setnamed(fdtd, obj, "rotation 1", base + v, idx)
+    elif kind == "insert_cut":
+        # 鍗曠偣缂哄彛锛氬湪鍏缂濈幆鍙充晶鎻掑叆涓€涓?etch 鐭╁舰鍒囧彛锛屽昂瀵搁殢 cut 鎵弿銆?        outer = float(getnamed(fdtd, "Si_outer_ring", "radius"))
+        zmin = float(getnamed(fdtd, "air_inner_ring", "z min"))
+        zmax = float(getnamed(fdtd, "air_inner_ring", "z max"))
+        fdtd.addrect()
+        fdtd.set("name", "air_single_cut")
+        fdtd.set("material", "etch")
+        fdtd.set("x", outer - v / 2.0)
+        fdtd.set("y", 0)
+        fdtd.set("x span", max(v, 1e-12))
+        fdtd.set("y span", float(config["CUT_WIDTH_NM"]) * 1e-9)
+        fdtd.set("z min", zmin)
+        fdtd.set("z max", zmax)
+        try:
+            fdtd.set("override mesh order from material database", 1)
+            fdtd.set("mesh order", 1)
+        except Exception:
+            pass
     else:
         raise ValueError("鏈煡 OPERATION: {}".format(kind))
 
@@ -345,10 +403,7 @@ def spectrum_summary(wavelength_m, transmission):
         return {"max": None}
     imax = int(np.argmax(t))
     imin = int(np.argmin(t))
-    return {
-        "max": float(t[imax]), "max_nm": float(nm(wavelength_m[imax])),
-        "min": float(t[imin]), "min_nm": float(nm(wavelength_m[imin])),
-    }
+    return {"max": float(t[imax]), "max_nm": float(nm(wavelength_m[imax])), "min": float(t[imin]), "min_nm": float(nm(wavelength_m[imin]))}
 
 
 def write_xlsx(path, wavelength_m, transmission):
@@ -393,15 +448,161 @@ def save_abs2_plot(path, config, point, wavelength_m, transmission):
     ax.set_ylabel("|T|^2")
     ax.set_title("{} - {}".format(config["PERTURBATION_NAME"], point["name"]))
     ax.grid(True, alpha=0.28)
-    if config.get("SCAN_UNIT") == "deg":
-        text = "{} = {:+.3f} deg".format(config["VALUE_NAME"], point["value_deg"])
-    else:
-        text = "{} = {:.3f} nm".format(config["VALUE_NAME"], point["value_nm"])
-    ax.text(0.03, 0.97, text, transform=ax.transAxes, va="top", ha="left", fontsize=8,
-            bbox=dict(facecolor="white", alpha=0.82, edgecolor="#dddddd"))
+    ax.text(0.03, 0.97, "{} = {:.3f} nm".format(config["VALUE_NAME"], point["value_nm"]), transform=ax.transAxes, va="top", ha="left", fontsize=8, bbox=dict(facecolor="white", alpha=0.82, edgecolor="#dddddd"))
     fig.tight_layout()
     fig.savefig(str(path))
     plt.close(fig)
+
+
+def write_diagnostic_json(path, data):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def write_diagnostic_xlsx(path, point, quality, solver_info, runtime_config):
+    rows = [
+        ("key", "value"),
+        ("point_name", point.get("name", "")),
+        ("point_index", point.get("index", "")),
+        ("point_value_nm", point.get("value_nm", "")),
+        ("quality_status", (quality or {}).get("status", "")),
+        ("quality_flags", ";".join((quality or {}).get("flags") or [])),
+        ("quality_reasons", ";".join((quality or {}).get("reasons") or [])),
+        ("tmax", (quality or {}).get("tmax", "")),
+        ("tmin", (quality or {}).get("tmin", "")),
+        ("ripple_score", (quality or {}).get("ripple_score", "")),
+        ("sign_changes", (quality or {}).get("sign_changes", "")),
+        ("solver_status", (solver_info or {}).get("solver_status", "")),
+        ("solver_status_text", (solver_info or {}).get("solver_status_text", "")),
+        ("autoshutoff_final", (solver_info or {}).get("autoshutoff_final", "")),
+        ("simulation_time_fs", (runtime_config or {}).get("SIMULATION_TIME_FS", "")),
+        ("auto_shutoff_min", (runtime_config or {}).get("AUTO_SHUTOFF_MIN", "")),
+        ("mesh_accuracy", (runtime_config or {}).get("MESH_ACCURACY", "")),
+        ("dt_stability_factor", (runtime_config or {}).get("DT_STABILITY_FACTOR", "")),
+    ]
+    sheet_rows = []
+    for r, row in enumerate(rows, 1):
+        ref_a = "A{}".format(r)
+        ref_b = "B{}".format(r)
+        cells = [
+            '<c r="{}" t="inlineStr"><is><t>{}</t></is></c>'.format(ref_a, escape(str(row[0]))),
+            '<c r="{}" t="inlineStr"><is><t>{}</t></is></c>'.format(ref_b, escape(str(row[1]))),
+        ]
+        sheet_rows.append('<row r="{}">{}</row>'.format(r, "".join(cells)))
+    sheet = '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>{}</sheetData></worksheet>'.format("".join(sheet_rows))
+    workbook = '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="diagnostic" sheetId="1" r:id="rId1"/></sheets></workbook>'
+    rels = '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'
+    wb_rels = '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'
+    ctype = '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(str(path), "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", ctype)
+        zf.writestr("_rels/.rels", rels)
+        zf.writestr("xl/workbook.xml", workbook)
+        zf.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet)
+
+
+def write_diagnostic_png(path, point, quality):
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(figsize=(8.6, 5.2), dpi=160)
+        ax.axis("off")
+        lines = [
+            "Diagnostic Snapshot",
+            "sample: {}".format(point.get("name", "")),
+            "index: {}".format(point.get("index", "")),
+            "delta_nm: {:.6f}".format(float(point.get("value_nm", 0.0))),
+            "status: {}".format((quality or {}).get("status", "")),
+            "flags: {}".format(",".join((quality or {}).get("flags") or [])),
+            "reasons: {}".format("; ".join((quality or {}).get("reasons") or [])),
+        ]
+        ax.text(0.02, 0.98, "\n".join(lines), va="top", ha="left", fontsize=10, family="monospace")
+        fig.tight_layout()
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(str(path))
+        plt.close(fig)
+    except Exception:
+        # Minimal 1x1 transparent PNG fallback
+        tiny_png = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0bIDATx\x9cc`\x00\x02\x00\x00\x05\x00\x01"
+            b"\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(tiny_png)
+
+
+def persist_attempt_artifacts(attempt_root, point, attempt, ascii_point, wavelength_m, transmission, quality, solver_info, runtime_config):
+    attempt_dir = Path(attempt_root) / point["name"] / "attempt_{:02d}".format(int(attempt))
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    fsp_path = attempt_dir / (point["name"] + ".fsp")
+    if ascii_point and Path(ascii_point).exists():
+        shutil.copy2(str(ascii_point), str(fsp_path))
+    diagnostic_json = attempt_dir / "diagnostic.json"
+    write_diagnostic_json(diagnostic_json, {
+        "point": point,
+        "attempt": attempt,
+        "quality": quality or {},
+        "solver_info": solver_info or {},
+        "runtime_config": runtime_config or {},
+        "has_transmission": bool(wavelength_m is not None and transmission is not None),
+    })
+    if wavelength_m is not None and transmission is not None:
+        xlsx_path = attempt_dir / "transmission_abs2.xlsx"
+        png_path = attempt_dir / "transmission_abs2.png"
+        write_xlsx(xlsx_path, wavelength_m, transmission)
+        save_abs2_plot(png_path, runtime_config, point, wavelength_m, transmission)
+    else:
+        xlsx_path = attempt_dir / "diagnostic.xlsx"
+        png_path = attempt_dir / "diagnostic.png"
+        write_diagnostic_xlsx(xlsx_path, point, quality, solver_info, runtime_config)
+        write_diagnostic_png(png_path, point, quality)
+    return {
+        "attempt_dir": attempt_dir,
+        "fsp": fsp_path if fsp_path.exists() else None,
+        "xlsx": xlsx_path,
+        "png": png_path,
+        "diagnostic_json": diagnostic_json,
+    }
+
+
+def finalize_sample_artifacts(paths, point, final_runtime_config, final_quality, final_solver_info, final_ascii_point, final_wavelength_m, final_transmission, attempt_artifact):
+    if final_ascii_point and Path(final_ascii_point).exists():
+        shutil.copy2(str(final_ascii_point), str(paths["fsp"]))
+    elif attempt_artifact and attempt_artifact.get("fsp") and Path(attempt_artifact["fsp"]).exists():
+        shutil.copy2(str(attempt_artifact["fsp"]), str(paths["fsp"]))
+
+    if final_wavelength_m is not None and final_transmission is not None:
+        write_xlsx(paths["xlsx"], final_wavelength_m, final_transmission)
+        save_abs2_plot(paths["png"], final_runtime_config, point, final_wavelength_m, final_transmission)
+    elif attempt_artifact is not None:
+        if attempt_artifact.get("xlsx") and Path(attempt_artifact["xlsx"]).exists():
+            shutil.copy2(str(attempt_artifact["xlsx"]), str(paths["xlsx"]))
+        else:
+            write_diagnostic_xlsx(paths["xlsx"], point, final_quality, final_solver_info, final_runtime_config)
+        if attempt_artifact.get("png") and Path(attempt_artifact["png"]).exists():
+            shutil.copy2(str(attempt_artifact["png"]), str(paths["png"]))
+        else:
+            write_diagnostic_png(paths["png"], point, final_quality)
+    else:
+        write_diagnostic_xlsx(paths["xlsx"], point, final_quality, final_solver_info, final_runtime_config)
+        write_diagnostic_png(paths["png"], point, final_quality)
+
+    diag_payload = {
+        "point": point,
+        "quality": final_quality or {},
+        "solver_info": final_solver_info or {},
+        "runtime_config": final_runtime_config or {},
+        "has_transmission": bool(final_wavelength_m is not None and final_transmission is not None),
+    }
+    write_diagnostic_json(paths["diagnostic_json"], diag_payload)
 
 
 def write_scan_plan(path, points):
@@ -422,36 +623,15 @@ def write_manifest(path, rows):
         "simulation_time_fs", "auto_shutoff_min", "mesh_accuracy", "dt_stability_factor",
         "fsp", "xlsx", "png", "elapsed_s",
         "max_abs2", "max_wavelength_nm", "min_abs2", "min_wavelength_nm",
+        "final_fsp_exists", "final_xlsx_exists", "final_png_exists",
+        "diagnostic_json", "attempt_artifacts_dir",
+        "badness_score", "improvement_ratio", "decision_reason",
     ]
     with Path(path).open("w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
-
-def read_basic_geometry(fdtd, config):
-    g = {"objects": {}}
-    names = list(config.get("GEOMETRY_OBJECTS", []))
-    for name in ("SiO2_substrate", "FDTD", "source", "T"):
-        if name not in names:
-            names.append(name)
-    for name in names:
-        try:
-            count = int(fdtd.getnamednumber(name))
-        except Exception:
-            count = 0
-        arr = []
-        for i in range(1, count + 1):
-            d = {"index": i}
-            for p in ("x", "y", "x span", "y span", "z min", "z max", "z span", "radius", "radius 2", "rotation 1"):
-                try:
-                    d[p] = float(getnamed(fdtd, name, p, i if count > 1 else None))
-                except Exception:
-                    pass
-            arr.append(d)
-        if arr:
-            g["objects"][name] = arr
-    return g
 
 
 def write_note(path, config, source_fsp, geometry, points, mode):
@@ -462,26 +642,18 @@ def write_note(path, config, source_fsp, geometry, points, mode):
         "- 源 FSP: {}".format(source_fsp),
         "- 扰动名称: {}".format(config["PERTURBATION_NAME"]),
         "- 降群路径: {}".format(config["GROUP_PATH"]),
-        "- 操作对象: {}".format(config["OBJECT_NAME"]),
+        "- 对象名称: {}".format(config["OBJECT_NAME"]),
         "- 操作说明: {}".format(config["OPERATION_DESCRIPTION"]),
         "- 扫描点数: {}".format(len(points)),
-        "- 结果目录: 00_scan_plan / 01_fsp / 02_transmission_excel / 03_transmission_abs2_png / 04_logs / 05_work_fsp",
+        "- 结果目录遵循 00_scan_plan / 01_fsp / 02_transmission_excel / 03_transmission_abs2_png / 04_logs / 05_work_fsp。",
         "",
-        "## 用户主要修改区解释",
+        "## 实际读取到的主要几何",
     ]
-    lines.extend(config.get("USER_GUIDE", []))
-    lines.extend(["", "## 实际读取到的主要几何"])
     for name, arr in geometry.get("objects", {}).items():
         lines.append("- {}: {} 个对象".format(name, len(arr)))
-        for d in arr[:10]:
-            chunks = []
-            for k in ("x", "y", "x span", "y span", "radius", "radius 2", "z span", "rotation 1"):
-                if k in d:
-                    if k == "rotation 1":
-                        chunks.append("{}={:.3f} deg".format(k, d[k]))
-                    else:
-                        chunks.append("{}={:.3f} um".format(k, float(d[k]) * 1e6))
-            lines.append("  - index {} {}".format(d.get("index"), ", ".join(chunks)))
+        for d in arr[:8]:
+            desc = ", ".join("{}={:.3f} nm".format(k, nm(v)) for k, v in d.items() if k in ("x", "y", "x span", "y span", "radius", "z span"))
+            lines.append("  - index {} {}".format(d.get("index"), desc))
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -490,20 +662,8 @@ def result_paths(folders, point):
         "fsp": folders["fsp"] / (point["name"] + ".fsp"),
         "xlsx": folders["excel"] / (point["name"] + "_transmission_abs2.xlsx"),
         "png": folders["png"] / (point["name"] + "_transmission_abs2.png"),
+        "diagnostic_json": folders["logs"] / (point["name"] + "_diagnostic.json"),
     }
-
-
-def describe_scan(config, points):
-    if config.get("SCAN_UNIT") == "deg":
-        step = points[0].get("step_deg", 0) if points else 0
-        return "{}：{:+.3f} deg 到 {:+.3f} deg，当前步长 {:.3f} deg，共 {} 组".format(
-            config["VALUE_NAME"], float(config["SCAN_START_DEG"]), float(config["SCAN_STOP_DEG"]), float(step), len(points)
-        )
-    step = points[0].get("step_nm", 0) if points else 0
-    return "{}：{:.4f} um 到 {:.4f} um，当前步长 {:.4f} um，共 {} 组".format(
-        config["VALUE_NAME"], um_from_nm(config["SCAN_START_NM"]), um_from_nm(config["SCAN_STOP_NM"]),
-        float(step) * 1e-3, len(points)
-    )
 
 
 def parse_args(config):
@@ -547,7 +707,6 @@ def parse_args(config):
         config["QUALITY_RIPPLE_LIMIT"] = float(args.quality_ripple_limit)
     return args
 
-
 def maybe_ask_fdtd_runtime_overrides(config):
     keys = ("SIMULATION_TIME_FS", "AUTO_SHUTOFF_MIN", "MESH_ACCURACY", "DT_STABILITY_FACTOR")
     if not any(key in config for key in keys):
@@ -579,9 +738,11 @@ def maybe_ask_fdtd_runtime_overrides(config):
         config[key] = int(value) if key == "MESH_ACCURACY" else value
     if config.get("SIMULATION_TIME_FS") is not None:
         config["SIMULATION_TIME_S"] = float(config["SIMULATION_TIME_FS"]) * 1e-15
+
+
 def run(config):
+    config = normalize_autotune_config(config)
     args = parse_args(config)
-    normalize_autotune_config(config)
     mode = args.mode
     if mode in ("test", "full") and getattr(args, "prompted_mode", False):
         maybe_ask_fdtd_runtime_overrides(config)
@@ -617,9 +778,9 @@ def run(config):
 
     rows = []
     total_start = time.time()
-    max_retry = int(config.get("AUTO_RETRY_MAX", 2)) if config.get("AUTO_RETRY_ENABLED", True) else 0
     base_runtime_config = clone_runtime_config(config)
     retry_history_path = folders["logs"] / "retry_history.csv"
+    attempt_root = folders["logs"] / "attempt_artifacts"
 
     for idx, point in enumerate(points, 1):
         assert_source_unchanged(source_fsp, source_hash)
@@ -638,23 +799,30 @@ def run(config):
         wavelength_m = None
         transmission = None
         final_ascii_point = ascii_point_base
+        retry_state = init_retry_state(base_runtime_config)
         attempt = 0
+        next_runtime_config = clone_runtime_config(base_runtime_config)
+        last_badness_score = ""
+        last_improvement_ratio = ""
+        last_decision_reason = "init"
+        attempt_artifact = None
+        attempt_artifacts_dir = attempt_root / point["name"]
 
-        for attempt in range(0, max_retry + 1):
-            runtime_config = final_runtime_config if attempt == 0 else next_retry_config(
-                base_runtime_config, final_runtime_config, final_quality or {"flags": []}, attempt
-            )
+        while True:
+            runtime_config = clone_runtime_config(next_runtime_config)
             final_runtime_config = runtime_config
 
             attempt_suffix = "" if attempt == 0 else "_retry{:02d}".format(attempt)
             ascii_point = ascii_root / (point["name"] + attempt_suffix + ".fsp")
             if attempt == 0:
-                shutil.copy2(str(ascii_point_base), str(ascii_point))
+                # attempt 0 uses the base file path directly; avoid self-copy on Windows.
+                if str(ascii_point_base) != str(ascii_point):
+                    shutil.copy2(str(ascii_point_base), str(ascii_point))
             else:
                 shutil.copy2(str(ascii_master), str(ascii_point))
             final_ascii_point = ascii_point
 
-            print("  尝试 {}/{}：{}".format(attempt, max_retry, runtime_profile_text(runtime_config)))
+            print("  尝试 {}：{}".format(attempt, runtime_profile_text(runtime_config)))
             start = time.time()
             fdtd = None
             solver_info = {}
@@ -693,8 +861,35 @@ def run(config):
             final_elapsed = elapsed
             final_quality = quality
             final_solver_info = solver_info
+            badness_score = compute_badness_score(quality, solver_info, runtime_config)
+            previous_badness = retry_state.get("last_badness")
+            if previous_badness in (None, "", 0):
+                improvement_ratio = ""
+            else:
+                try:
+                    improvement_ratio = (float(previous_badness) - float(badness_score)) / max(abs(float(previous_badness)), 1e-12)
+                except Exception:
+                    improvement_ratio = ""
+            continue_retry, retry_state, decision_reason = should_continue_retry(
+                base_runtime_config, retry_state, attempt, quality, solver_info, elapsed
+            )
+            action = runtime_config.get("AUTO_RETRY_LAST_ACTION", "")
+            attempt_artifact = persist_attempt_artifacts(
+                attempt_root=attempt_root,
+                point=point,
+                attempt=attempt,
+                ascii_point=ascii_point,
+                wavelength_m=wavelength_m,
+                transmission=transmission,
+                quality=quality,
+                solver_info=solver_info,
+                runtime_config=runtime_config,
+            )
+            last_badness_score = "" if badness_score in ("", None) else "{:.6f}".format(float(badness_score))
+            last_improvement_ratio = "" if improvement_ratio == "" else "{:.6f}".format(float(improvement_ratio))
+            last_decision_reason = decision_reason
 
-            append_retry_history(retry_history_path, {
+            append_retry_history_with_feedback(retry_history_path, {
                 "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "point_index": point["index"],
                 "point_name": point["name"],
@@ -718,25 +913,52 @@ def run(config):
                 "fsp": str(ascii_point),
                 "xlsx": str(paths["xlsx"]),
                 "png": str(paths["png"]),
+                "badness_score": last_badness_score,
+                "badness_reasons": quality.get("flags") or [],
+                "improvement_ratio": last_improvement_ratio,
+                "decision_reason": last_decision_reason,
+                "action": action,
             })
 
-            print("  质量检测：{}；flags={}".format(quality.get("status"), ",".join(quality.get("flags") or [])))
+            print(
+                "  质量检测：status={}；flags={}；badness_score={:.6f}；improvement_ratio={}；decision_reason={}；action={}".format(
+                    quality.get("status"),
+                    ",".join(quality.get("flags") or []),
+                    float(badness_score),
+                    "" if improvement_ratio == "" else "{:.6f}".format(float(improvement_ratio)),
+                    decision_reason,
+                    action,
+                )
+            )
             if quality.get("accepted"):
                 accepted = True
                 break
-            if attempt < max_retry:
-                print("  当前点不收敛，暂停后续扰动点，优先重试当前点。")
-            else:
-                print("  超过最大自动重试次数，标记 failed_quarantined，继续下一个扰动点。")
+            if not continue_retry:
+                print("  停止重试：{}，标记 failed_quarantined，继续下一个扰动点。".format(decision_reason))
+                break
 
-        try:
-            shutil.copy2(str(final_ascii_point), str(paths["fsp"]))
-        except Exception:
-            pass
+            next_runtime_config = next_retry_config(
+                base_runtime_config,
+                final_runtime_config,
+                final_quality or {"flags": []},
+                attempt + 1,
+                retry_state=retry_state,
+            )
+            attempt += 1
+            print("  当前点不收敛，继续重试当前点。")
 
+        finalize_sample_artifacts(
+            paths=paths,
+            point=point,
+            final_runtime_config=final_runtime_config,
+            final_quality=final_quality,
+            final_solver_info=final_solver_info,
+            final_ascii_point=final_ascii_point,
+            final_wavelength_m=wavelength_m,
+            final_transmission=transmission,
+            attempt_artifact=attempt_artifact,
+        )
         if wavelength_m is not None and transmission is not None:
-            write_xlsx(paths["xlsx"], wavelength_m, transmission)
-            save_abs2_plot(paths["png"], final_runtime_config, point, wavelength_m, transmission)
             final_summary = spectrum_summary(wavelength_m, transmission)
         else:
             final_summary = {"max": None}
@@ -772,6 +994,14 @@ def run(config):
             "max_wavelength_nm": "" if final_summary.get("max") is None else "{:.9f}".format(final_summary["max_nm"]),
             "min_abs2": "" if final_summary.get("max") is None else "{:.18e}".format(final_summary["min"]),
             "min_wavelength_nm": "" if final_summary.get("max") is None else "{:.9f}".format(final_summary["min_nm"]),
+            "final_fsp_exists": str(Path(paths["fsp"]).exists()),
+            "final_xlsx_exists": str(Path(paths["xlsx"]).exists()),
+            "final_png_exists": str(Path(paths["png"]).exists()),
+            "diagnostic_json": str(paths["diagnostic_json"]),
+            "attempt_artifacts_dir": str(attempt_artifacts_dir),
+            "badness_score": last_badness_score,
+            "improvement_ratio": last_improvement_ratio,
+            "decision_reason": last_decision_reason,
         })
         write_manifest(run_dir / "manifest.csv", rows)
         assert_source_unchanged(source_fsp, source_hash)
