@@ -25,8 +25,15 @@ from xml.sax.saxutils import escape
 warnings.filterwarnings("ignore", category=UserWarning, module=r"numpy\._distributor_init")
 warnings.filterwarnings("ignore", message=r".*loaded more than 1 DLL.*")
 warnings.filterwarnings("ignore", message=r".*deprecated.*")
+warnings.filterwarnings("once", message=r".*Glyph .*missing from font\(s\) DejaVu Sans.*", category=UserWarning)
 
 import numpy as np
+
+
+def configure_matplotlib_chinese_font(matplotlib_module):
+    rc = matplotlib_module.rcParams
+    rc["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "SimSun", "DejaVu Sans"]
+    rc["axes.unicode_minus"] = False
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -269,19 +276,22 @@ def build_scan_points(config, mode, max_points=None):
     stem = label if label == value_name or label.endswith("_" + value_name) else "{}_{}".format(label, value_name)
     start = float(config["SCAN_START_NM"]) * 1e-9
     stop = float(config["SCAN_STOP_NM"]) * 1e-9
-    step = auto_step(
-        start, stop, float(config["SCAN_STEP_NM"]) * 1e-9,
-        bool(config["AUTO_SCAN_STEP"]), int(config["TARGET_SCAN_POINTS"]),
-        float(config["SCAN_STEP_MIN_NM"]) * 1e-9, float(config["SCAN_STEP_MAX_NM"]) * 1e-9,
-    )
+    manual_step = abs(float(config["SCAN_STEP_NM"]) * 1e-9)
+    if manual_step <= 0:
+        raise RuntimeError("SCAN_STEP_NM 必须 > 0")
+    span = float(stop) - float(start)
+    direction = 1.0 if span >= 0 else -1.0
+    intervals = max(1, int(round(abs(span) / manual_step)))
+    step = direction * manual_step
     points = []
-    for i, value in enumerate(frange(start, stop, step)):
+    for i in range(intervals + 1):
+        value = float(start) + i * step
         points.append({
             "index": i,
             "name": "{:04d}_{}_{:.3f}nm".format(i, stem, nm(value)),
             "value": value,
             "value_nm": nm(value),
-            "step_nm": nm(step),
+            "step_nm": nm(abs(step)),
         })
     if mode == "test":
         points = points[:int(config["TEST_POINT_COUNT"])]
@@ -439,6 +449,7 @@ def save_abs2_plot(path, config, point, wavelength_m, transmission):
     try:
         import matplotlib
         matplotlib.use("Agg")
+        configure_matplotlib_chinese_font(matplotlib)
         import matplotlib.pyplot as plt
     except Exception:
         return
@@ -509,6 +520,7 @@ def write_diagnostic_png(path, point, quality):
     try:
         import matplotlib
         matplotlib.use("Agg")
+        configure_matplotlib_chinese_font(matplotlib)
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots(figsize=(8.6, 5.2), dpi=160)
         ax.axis("off")
@@ -626,12 +638,21 @@ def write_manifest(path, rows):
         "final_fsp_exists", "final_xlsx_exists", "final_png_exists",
         "diagnostic_json", "attempt_artifacts_dir",
         "badness_score", "improvement_ratio", "decision_reason",
+        "error_stage", "error_message", "work_fsp",
     ]
     with Path(path).open("w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
+
+
+def flush_manifest(run_dir, rows):
+    logs_manifest = Path(run_dir) / "04_logs" / "manifest.csv"
+    root_manifest = Path(run_dir) / "manifest.csv"
+    logs_manifest.parent.mkdir(parents=True, exist_ok=True)
+    write_manifest(logs_manifest, rows)
+    write_manifest(root_manifest, rows)
 
 
 def write_note(path, config, source_fsp, geometry, points, mode):
@@ -785,8 +806,46 @@ def run(config):
     for idx, point in enumerate(points, 1):
         assert_source_unchanged(source_fsp, source_hash)
         paths = result_paths(folders, point)
+        run_work_fsp = folders["work"] / (point["name"] + ".fsp")
         ascii_point_base = ascii_root / (point["name"] + ".fsp")
-        shutil.copy2(str(ascii_master), str(ascii_point_base))
+        shutil.copy2(str(result_master), str(run_work_fsp))
+        shutil.copy2(str(run_work_fsp), str(ascii_point_base))
+
+        rows.append({
+            "index": point["index"],
+            "name": point["name"],
+            "status": "created",
+            "retry_count": 0,
+            "quality_flags": "",
+            "quality_reasons": "",
+            "solver_status": "",
+            "solver_status_text": "",
+            "autoshutoff_final": "",
+            "simulation_time_fs": "",
+            "auto_shutoff_min": "",
+            "mesh_accuracy": "",
+            "dt_stability_factor": "",
+            "fsp": str(paths["fsp"]),
+            "xlsx": str(paths["xlsx"]),
+            "png": str(paths["png"]),
+            "elapsed_s": "",
+            "max_abs2": "",
+            "max_wavelength_nm": "",
+            "min_abs2": "",
+            "min_wavelength_nm": "",
+            "final_fsp_exists": "False",
+            "final_xlsx_exists": "False",
+            "final_png_exists": "False",
+            "diagnostic_json": str(paths["diagnostic_json"]),
+            "attempt_artifacts_dir": "",
+            "badness_score": "",
+            "improvement_ratio": "",
+            "decision_reason": "created",
+            "error_stage": "",
+            "error_message": "",
+            "work_fsp": str(run_work_fsp),
+        })
+        flush_manifest(run_dir, rows)
 
         print("[{}/{}] 开始仿真：{}；{}={:.3f} nm".format(idx, len(points), point["name"], config["VALUE_NAME"], point["value_nm"]))
 
@@ -917,6 +976,9 @@ def run(config):
                 "badness_reasons": quality.get("flags") or [],
                 "improvement_ratio": last_improvement_ratio,
                 "decision_reason": last_decision_reason,
+            "error_stage": "" if accepted else "simulation_or_extract",
+            "error_message": "" if accepted else ";".join(final_quality.get("reasons") or []) if final_quality else "",
+            "work_fsp": str(run_work_fsp),
                 "action": action,
             })
 
@@ -972,6 +1034,12 @@ def run(config):
         if not accepted:
             row_status = "failed_quarantined"
 
+        if final_ascii_point and Path(final_ascii_point).exists():
+            try:
+                shutil.copy2(str(final_ascii_point), str(run_work_fsp))
+            except Exception:
+                pass
+
         rows.append({
             "index": point["index"],
             "name": point["name"],
@@ -1002,8 +1070,13 @@ def run(config):
             "badness_score": last_badness_score,
             "improvement_ratio": last_improvement_ratio,
             "decision_reason": last_decision_reason,
+            "error_stage": "" if accepted else "simulation_or_extract",
+            "error_message": "" if accepted else ";".join(final_quality.get("reasons") or []) if final_quality else "",
+            "work_fsp": str(run_work_fsp),
         })
-        write_manifest(run_dir / "manifest.csv", rows)
+        flush_manifest(run_dir, rows)
         assert_source_unchanged(source_fsp, source_hash)
 
     print("全部完成。总用时 {}".format(format_duration(time.time() - total_start)))
+
+

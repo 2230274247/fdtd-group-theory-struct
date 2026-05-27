@@ -765,8 +765,8 @@ def cleanup_temp_script(script, original_script):
         original_script = Path(original_script)
         if script != original_script and script.name.startswith("_controller_temp_") and script.parent == original_script.parent:
             script.unlink()
-    except Exception:
-        pass
+    except Exception as exc:
+        print("Warning: failed to remove temporary controller script {}: {}".format(script, exc))
 
 
 def script_cli_style(script):

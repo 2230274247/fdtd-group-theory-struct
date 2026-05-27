@@ -81,6 +81,9 @@ desktop.ini
 *.bak_*
 *_backup_*
 _codex_pdf_extract.txt
+_controller_temp_*.py
+runtime_state/
+fdtd_ascii_work/
 
 # ==========================================
 # 子仓库 .git 备份（不上传）

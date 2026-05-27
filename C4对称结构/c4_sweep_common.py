@@ -25,8 +25,15 @@ from xml.sax.saxutils import escape
 warnings.filterwarnings("ignore", category=UserWarning, module=r"numpy\._distributor_init")
 warnings.filterwarnings("ignore", message=r".*loaded more than 1 DLL.*")
 warnings.filterwarnings("ignore", message=r".*deprecated.*")
+warnings.filterwarnings("once", message=r".*Glyph .*missing from font\(s\) DejaVu Sans.*", category=UserWarning)
 
 import numpy as np
+
+
+def configure_matplotlib_chinese_font(matplotlib_module):
+    rc = matplotlib_module.rcParams
+    rc["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "SimSun", "DejaVu Sans"]
+    rc["axes.unicode_minus"] = False
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -269,19 +276,22 @@ def build_scan_points(config, mode, max_points=None):
     stem = label if label == value_name or label.endswith("_" + value_name) else "{}_{}".format(label, value_name)
     start = float(config["SCAN_START_NM"]) * 1e-9
     stop = float(config["SCAN_STOP_NM"]) * 1e-9
-    step = auto_step(
-        start, stop, float(config["SCAN_STEP_NM"]) * 1e-9,
-        bool(config["AUTO_SCAN_STEP"]), int(config["TARGET_SCAN_POINTS"]),
-        float(config["SCAN_STEP_MIN_NM"]) * 1e-9, float(config["SCAN_STEP_MAX_NM"]) * 1e-9,
-    )
+    manual_step = abs(float(config["SCAN_STEP_NM"]) * 1e-9)
+    if manual_step <= 0:
+        raise RuntimeError("SCAN_STEP_NM 必须 > 0")
+    span = float(stop) - float(start)
+    direction = 1.0 if span >= 0 else -1.0
+    intervals = max(1, int(round(abs(span) / manual_step)))
+    step = direction * manual_step
     points = []
-    for i, value in enumerate(frange(start, stop, step)):
+    for i in range(intervals + 1):
+        value = float(start) + i * step
         points.append({
             "index": i,
             "name": "{:04d}_{}_{:.3f}nm".format(i, stem, nm(value)),
             "value": value,
             "value_nm": nm(value),
-            "step_nm": nm(step),
+            "step_nm": nm(abs(step)),
         })
     if mode == "test":
         points = points[:int(config["TEST_POINT_COUNT"])]
@@ -439,6 +449,7 @@ def save_abs2_plot(path, config, point, wavelength_m, transmission):
     try:
         import matplotlib
         matplotlib.use("Agg")
+        configure_matplotlib_chinese_font(matplotlib)
         import matplotlib.pyplot as plt
     except Exception:
         return
@@ -509,6 +520,7 @@ def write_diagnostic_png(path, point, quality):
     try:
         import matplotlib
         matplotlib.use("Agg")
+        configure_matplotlib_chinese_font(matplotlib)
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots(figsize=(8.6, 5.2), dpi=160)
         ax.axis("off")

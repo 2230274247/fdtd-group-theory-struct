@@ -19,7 +19,6 @@ import sys
 import time
 import warnings
 import zipfile
-from datetime import datetime
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -42,6 +41,7 @@ from fdtd_autotune_common import (
     runtime_profile_text,
     append_retry_history,
 )
+from c4_runtime_common import chinese_timestamp, format_duration, nm
 
 PILLAR_LABELS = {
     1: "right_0deg",
@@ -51,23 +51,8 @@ PILLAR_LABELS = {
 }
 
 
-def nm(value_m):
-    """鎶婄背杞崲鎴?nm锛涙棦鏀寔鍗曚釜鏁帮紝涔熸敮鎸?numpy 鏁扮粍銆?""
-    arr = np.asarray(value_m)
-    if arr.shape == ():
-        return float(arr) * 1e9
-    return arr * 1e9
-
-
 def clamp(value, lower, upper):
     return max(lower, min(upper, value))
-
-
-def chinese_timestamp():
-    now = datetime.now()
-    return "{}骞磠}鏈坽}鏃{:02d}鏃秢:02d}鍒唟:02d}绉?.format(
-        now.year, now.month, now.day, now.hour, now.minute, now.second
-    )
 
 
 def safe_token(text):
@@ -78,17 +63,6 @@ def safe_token(text):
         else:
             chars.append("_")
     return "".join(chars).strip("_") or "point"
-
-
-def format_duration(seconds):
-    seconds = max(0.0, float(seconds))
-    if seconds < 60:
-        return "{:.1f} s".format(seconds)
-    minutes = int(seconds // 60)
-    sec = int(seconds % 60)
-    if minutes < 60:
-        return "{} min {} s".format(minutes, sec)
-    return "{} h {} min {} s".format(minutes // 60, minutes % 60, sec)
 
 
 def file_sha256(path):
@@ -110,7 +84,7 @@ def assert_source_unchanged(source_fsp, expected_hash):
 
 def frange(start, stop, step):
     if step <= 0:
-        raise ValueError("鎵弿姝ラ暱蹇呴』澶т簬 0銆?)
+        raise ValueError("scan step must be > 0")
     values = []
     value = float(start)
     guard = 0
@@ -119,7 +93,7 @@ def frange(start, stop, step):
         value += float(step)
         guard += 1
         if guard > 10000:
-            raise RuntimeError("鎵弿鐐规暟瓒呰繃 10000锛岃妫€鏌ヨ寖鍥村拰姝ラ暱銆?)
+            raise RuntimeError("scan points exceed 10000; check range and step")
     if values and abs(values[-1] - float(stop)) > abs(step) * 1e-6:
         values.append(float(stop))
     if not values:
@@ -130,7 +104,7 @@ def frange(start, stop, step):
 def auto_step(start, stop, manual_step, auto_enabled, target_points, step_min, step_max):
     if not auto_enabled:
         if manual_step <= 0:
-            raise ValueError("鎵嬪姩姝ラ暱蹇呴』澶т簬 0銆?)
+            raise ValueError("manual step must be > 0")
         return float(manual_step)
     span = abs(float(stop) - float(start))
     if span <= 0:
@@ -159,7 +133,7 @@ def import_lumapi(lumerical_root):
 def find_source_fsp(structure_root):
     files = sorted((Path(structure_root) / "fsp").glob("*.fsp"))
     if len(files) != 1:
-        raise RuntimeError("鏈熸湜鍦?fsp 鏂囦欢澶瑰唴鎵惧埌 1 涓?.fsp锛屽疄闄呮壘鍒?{} 涓€?.format(len(files)))
+        raise RuntimeError("expected exactly one .fsp in fsp folder, got {}".format(len(files)))
     return files[0]
 
 
@@ -322,7 +296,8 @@ def offset_upper_bound(geometry, config, pillar_index, unit_x, unit_y):
         root = disc ** 0.5
         t1 = (-b - root) / 2.0
         t2 = (-b + root) / 2.0
-        # 浠?t=0 鐨勫畨鍏ㄤ綅缃嚭鍙戯紝绗竴娆¤繘鍏ョ鍖虹殑姝ｆ牴灏辨槸鍙敤鍋忕Щ涓婇檺銆?        if t1 > 1e-15:
+        # first positive root is a usable offset upper bound from t=0
+        if t1 > 1e-15:
             collision_limits.append(t1)
         elif t2 > 1e-15 and c < 0:
             collision_limits.append(0.0)
@@ -334,7 +309,7 @@ def offset_upper_bound(geometry, config, pillar_index, unit_x, unit_y):
 def normalize_direction(dx, dy):
     length = (float(dx) * float(dx) + float(dy) * float(dy)) ** 0.5
     if length <= 0:
-        raise ValueError("鍋忕Щ鏂瑰悜涓嶈兘鏄?(0, 0)銆?)
+        raise ValueError("offset direction cannot be (0,0)")
     return float(dx) / length, float(dy) / length
 
 
@@ -348,7 +323,7 @@ def build_scan_points(config, geometry, mode, max_points=None):
         stop = min(desired_stop, auto_upper)
         if stop < start:
             raise ValueError(
-                "鍗婂緞鎵弿缁堢偣灏忎簬璧风偣銆傝嚜鍔ㄤ笂闄愪负 {:.3f} nm锛岃璋冨皬 RADIUS_START_NM 鎴?MIN_GAP_NM銆?.format(nm(auto_upper))
+                "radius stop is below start; auto upper bound is {:.3f} nm, adjust RADIUS_START_NM or MIN_GAP_NM".format(nm(auto_upper))
             )
         step = auto_step(
             start, stop, float(config["RADIUS_STEP_NM"]) * 1e-9,
@@ -374,7 +349,7 @@ def build_scan_points(config, geometry, mode, max_points=None):
         stop = min(desired_stop, auto_upper)
         if stop < start:
             raise ValueError(
-                "鍋忕Щ鎵弿缁堢偣灏忎簬璧风偣銆傝嚜鍔ㄨ竟鐣屼笂闄愪负 {:.3f} nm锛岃璋冨皬 OFFSET_START_NM 鎴?EDGE_CLEARANCE_NM銆?.format(nm(auto_upper))
+                "offset stop is below start; auto upper bound is {:.3f} nm, adjust OFFSET_START_NM or EDGE_CLEARANCE_NM".format(nm(auto_upper))
             )
         step = auto_step(
             start, stop, float(config["OFFSET_STEP_NM"]) * 1e-9,

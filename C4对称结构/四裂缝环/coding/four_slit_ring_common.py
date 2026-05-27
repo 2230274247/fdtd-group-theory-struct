@@ -32,6 +32,12 @@ warnings.filterwarnings("ignore", message=r".*deprecated.*", module=r"matplotlib
 warnings.filterwarnings("ignore", message=r".*loaded more than 1 DLL.*")
 import numpy as np
 
+C4_ROOT = Path(__file__).resolve().parents[3]
+if str(C4_ROOT) not in sys.path:
+    sys.path.insert(0, str(C4_ROOT))
+from c4_runtime_common import chinese_timestamp, format_duration, print_runtime_progress
+
+
 try:
     import matplotlib
     matplotlib.use("Agg")
@@ -59,10 +65,6 @@ def clamp(value, lower, upper):
     return max(lower, min(upper, value))
 
 
-def chinese_timestamp():
-    now = datetime.now()
-    return "{}年{}月{}日_{:02d}时{:02d}分{:02d}秒".format(now.year, now.month, now.day, now.hour, now.minute, now.second)
-
 
 def safe_token(text):
     chars = []
@@ -73,16 +75,6 @@ def safe_token(text):
             chars.append("_")
     return "".join(chars).strip("_") or "point"
 
-
-def format_duration(seconds):
-    seconds = max(0.0, float(seconds))
-    if seconds < 60:
-        return "{:.1f} s".format(seconds)
-    minutes = int(seconds // 60)
-    sec = int(seconds % 60)
-    if minutes < 60:
-        return "{} min {} s".format(minutes, sec)
-    return "{} h {} min {} s".format(minutes // 60, minutes % 60, sec)
 
 
 def file_sha256(path):
