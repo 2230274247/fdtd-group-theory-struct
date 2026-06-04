@@ -1,0 +1,81 @@
+{
+  "schema_version": "2026-06-02",
+  "audience": "ai_agent",
+  "diagnostics": [
+    {
+      "symptom": "peak_T_or_gui_abs2_above_1",
+      "likely_causes": [
+        {"cause": "nonphysical normalization or GUI Abs(T)^2 interpretation", "confidence": 0.8},
+        {"cause": "monitor placement or source normalization issue", "confidence": 0.6},
+        {"cause": "unconverged numerical artifact", "confidence": 0.5}
+      ],
+      "required_actions": ["reject_for_acceptance", "check raw real power transmission", "verify monitor position", "repeat with stricter convergence"]
+    },
+    {
+      "symptom": "peak disappears or shifts strongly when mesh changes",
+      "likely_causes": [
+        {"cause": "mesh-dependent geometry discretization", "confidence": 0.85},
+        {"cause": "resonance created by numerical artifact", "confidence": 0.75},
+        {"cause": "insufficient min mesh around high-index or metal aperture", "confidence": 0.65}
+      ],
+      "required_actions": ["do not accept", "run mesh convergence", "add local mesh only if physically justified"]
+    },
+    {
+      "symptom": "background oscillations or many side peaks",
+      "likely_causes": [
+        {"cause": "Fabry-Perot reflections from domain or substrate", "confidence": 0.65},
+        {"cause": "multiple resonant modes in band", "confidence": 0.65},
+        {"cause": "source bandwidth or simulation time artifacts", "confidence": 0.45}
+      ],
+      "required_actions": ["inspect field maps of side peaks", "adjust source band around target", "check PML and substrate thickness", "reject if unexplained"]
+    },
+    {
+      "symptom": "field peak wavelength matches transmission but field map is at monitor boundary only",
+      "likely_causes": [
+        {"cause": "field monitor placed in wrong plane", "confidence": 0.9},
+        {"cause": "direct transmission channel instead of cavity resonance", "confidence": 0.6}
+      ],
+      "required_actions": ["place field monitor in resonator mid-plane", "compare Ex/Ey/Ez maps", "do not claim mechanism from boundary field only"]
+    },
+    {
+      "symptom": "peak high but offband p95 rises",
+      "likely_causes": [
+        {"cause": "overcoupling/direct leakage channel", "confidence": 0.75},
+        {"cause": "metal aperture too large", "confidence": 0.7},
+        {"cause": "symmetry breaking too strong", "confidence": 0.55}
+      ],
+      "required_actions": ["reduce aperture/coupling", "restore symmetry slightly", "check if FWHM broadens"]
+    },
+    {
+      "symptom": "field map cannot explain proposed mode",
+      "likely_causes": [
+        {"cause": "wrong physical mechanism selected", "confidence": 0.75},
+        {"cause": "field monitor plane misses the mode maximum", "confidence": 0.55},
+        {"cause": "spectrum not converged", "confidence": 0.55}
+      ],
+      "required_actions": ["try resonator mid-plane field monitor", "inspect component and phase", "switch mechanism if still inconsistent"]
+    },
+    {
+      "symptom": "auto_shutoff_rebounds_after_initial_decay_under_local_mesh",
+      "likely_causes": [
+        {"cause": "long-lived high-Q tail not sufficiently decayed", "confidence": 0.75},
+        {"cause": "mesh override changed metal/slit discretization and excited numerical ringing", "confidence": 0.65},
+        {"cause": "current geometry is too mesh-sensitive for acceptance", "confidence": 0.6}
+      ],
+      "observed_case": {
+        "structure": "D4_double_ring_eight_slit_coupled_cavity",
+        "candidate": "extra115_eta6d6_gap14_inner_minus10_ag90",
+        "critical_mesh_trials": [
+          {"dx_dy_dz_nm": [5, 5, 10], "grid": "154x154x94", "decision": "aborted_too_slow"},
+          {"dx_dy_dz_nm": [7, 7, 10], "grid": "107x107x94", "decision": "aborted_too_slow"},
+          {"dx_dy_dz_nm": [10, 10, 15], "grid": "78x78x75", "decision": "aborted_shutoff_rebound"}
+        ]
+      },
+      "required_actions": ["do not accept", "record as convergence failure", "prefer geometry simplification or switch mechanism"]
+    }
+  ],
+  "uncertain_experience_policy": {
+    "weight_range": [0.1, 0.5],
+    "rule": "Keep uncertain observations but do not use them as hard design rules until confirmed by convergence and field-map consistency."
+  }
+}

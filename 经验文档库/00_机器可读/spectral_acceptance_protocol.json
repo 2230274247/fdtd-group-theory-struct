@@ -1,0 +1,77 @@
+{
+  "schema_version": "2026-06-02.strict",
+  "audience": "ai_agent",
+  "purpose": "Define strict pass/fail gates for narrow high-transmission spectra before claiming acceptance.",
+  "acceptance_order": [
+    "physical_bounds",
+    "convergence_consistency",
+    "spectrum_cleanliness",
+    "field_spectrum_consistency",
+    "field_map_mechanism_explainability",
+    "target_quality"
+  ],
+  "hard_reject_rules": [
+    {
+      "id": "transmission_above_one",
+      "condition": "any accepted transmission metric interpreted as physical transmittance has peak_T > 1.0",
+      "action": "reject_candidate",
+      "reason": "Physical transmittance cannot exceed 1. If GUI Abs(T)^2 exceeds 1, it may still be kept as diagnostic data but cannot pass acceptance."
+    },
+    {
+      "id": "runtime_inconsistency",
+      "condition": "changing simulation time, auto shutoff, dt stability factor, mesh accuracy, or monitor extraction materially changes peak position, peak height, FWHM, or background",
+      "action": "reject_or_continue_convergence",
+      "reason": "Spectrum is not numerically stable."
+    },
+    {
+      "id": "oscillatory_background",
+      "condition": "background has repeated local peaks, ringing, or sideband oscillations not predicted by the mechanism",
+      "action": "reject_candidate",
+      "reason": "Clean background is part of the target, and unexplained oscillation usually indicates numerical artifact, multiple modes, or unwanted direct channel."
+    },
+    {
+      "id": "field_spectrum_mismatch",
+      "condition": "field spectrum peak does not align with transmission peak or field enhancement is not localized at the designed resonant region",
+      "action": "reject_or_reanalyze",
+      "reason": "Transmission peak and field map must support the same physical mechanism."
+    },
+    {
+      "id": "mechanism_unexplainable_field",
+      "condition": "field map cannot be explained by the proposed mode symmetry, cavity path, defect localization, or coupling channel",
+      "action": "reject_physical_interpretation",
+      "reason": "Do not accept a spectrum that cannot be explained from field behavior."
+    }
+  ],
+  "required_validation_runs": [
+    {
+      "id": "baseline_convergence",
+      "vary": ["simulation_time_fs", "auto_shutoff_min"],
+      "minimum_cases": 2,
+      "pass_hint": "peak_nm and FWHM remain stable; peak_T changes only within acceptable numerical tolerance"
+    },
+    {
+      "id": "mesh_convergence",
+      "vary": ["mesh_accuracy", "min_mesh_step_um"],
+      "minimum_cases": 2,
+      "pass_hint": "mesh refinement does not create, remove, or strongly reshape the target peak"
+    },
+    {
+      "id": "field_cross_check",
+      "vary": ["monitor_type"],
+      "minimum_cases": 1,
+      "pass_hint": "single field monitor shows resonant field enhancement at same wavelength as transmission peak"
+    }
+  ],
+  "quality_metrics_after_hard_gates": {
+    "peak_T_target": "high but <= 1.0",
+    "FWHM_nm_target": "as small as possible after convergence",
+    "offband_background": "near zero, no unexplained oscillation",
+    "contrast": "peak_T / offband_p95 should be high",
+    "field_localization": "localized and symmetry-compatible"
+  },
+  "current_d4_implication": {
+    "extra120_gui_abs2": 1.086178487032841,
+    "strict_status": "not_accepted_as_physical_transmission",
+    "why": "Peak exceeds 1 under the user's strict acceptance rule. It remains useful as a diagnostic for coupling trend but cannot be final accepted spectrum."
+  }
+}

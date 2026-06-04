@@ -270,29 +270,133 @@ def read_basic_geometry(fdtd, config):
     return g
 
 
+def _first_present(config, names):
+    for name in names:
+        if name in config and config[name] is not None and str(config[name]) != "":
+            return name, config[name]
+    return None, None
+
+
+def resolve_scan_spec(config):
+    candidates = [
+        {
+            "unit": "nm",
+            "value_scale": 1e-9,
+            "start_keys": ("SCAN_START_NM", "START_NM"),
+            "end_keys": ("SCAN_STOP_NM", "SCAN_END_NM", "END_NM"),
+            "step_keys": ("SCAN_STEP_NM", "STEP_NM"),
+        },
+        {
+            "unit": "deg",
+            "value_scale": 1.0,
+            "start_keys": ("SCAN_START_DEG", "START_DEG", "ANGLE_START_DEG"),
+            "end_keys": ("SCAN_STOP_DEG", "SCAN_END_DEG", "END_DEG", "ANGLE_STOP_DEG"),
+            "step_keys": ("SCAN_STEP_DEG", "STEP_DEG", "ANGLE_STEP_DEG"),
+        },
+        {
+            "unit": "m",
+            "value_scale": 1.0,
+            "start_keys": ("SCAN_START_M", "START_M"),
+            "end_keys": ("SCAN_STOP_M", "SCAN_END_M", "END_M"),
+            "step_keys": ("SCAN_STEP_M", "STEP_M"),
+        },
+        {
+            "unit": "raw",
+            "value_scale": 1.0,
+            "start_keys": ("SCAN_START", "START"),
+            "end_keys": ("SCAN_STOP", "SCAN_END", "END"),
+            "step_keys": ("SCAN_STEP", "STEP"),
+        },
+    ]
+    for c in candidates:
+        sk, sv = _first_present(config, c["start_keys"])
+        ek, ev = _first_present(config, c["end_keys"])
+        tk, tv = _first_present(config, c["step_keys"])
+        if sk and ek and tk:
+            step = abs(float(tv))
+            if step <= 0:
+                raise RuntimeError("{} 必须 > 0".format(tk))
+            return {
+                "unit": c["unit"],
+                "value_scale": float(c["value_scale"]),
+                "start": float(sv),
+                "end": float(ev),
+                "step": step,
+                "start_key": sk,
+                "end_key": ek,
+                "step_key": tk,
+            }
+    raise KeyError("未找到可用扫描范围键")
+
+
+def _format_native_value(value, unit):
+    value = float(value)
+    if unit == "nm":
+        return "{:.3f} nm".format(value)
+    if unit == "deg":
+        return "{:.3f} deg".format(value)
+    if unit == "m":
+        return "{:.6e} m".format(value)
+    return "{:.6g}".format(value)
+
+
+def _format_name_value(value, unit):
+    text = _format_native_value(value, unit)
+    return text.replace(" ", "").replace("+", "").replace("-", "m").replace(".", "p")
+
+
+def point_value_text(config, point):
+    name = config.get("VALUE_NAME", "value")
+    if point.get("value_display"):
+        return "{} = {}".format(name, point.get("value_display"))
+    if point.get("value_unit") == "deg":
+        return "{} = {:.3f} deg".format(name, float(point.get("value_deg", point.get("value", 0.0))))
+    if point.get("value_nm") not in (None, ""):
+        return "{} = {:.3f} nm".format(name, float(point.get("value_nm")))
+    return "{} = {}".format(name, point.get("value"))
+
+
 def build_scan_points(config, mode, max_points=None):
     label = safe_token(config["SCAN_LABEL"])
     value_name = safe_token(config["VALUE_NAME"])
     stem = label if label == value_name or label.endswith("_" + value_name) else "{}_{}".format(label, value_name)
-    start = float(config["SCAN_START_NM"]) * 1e-9
-    stop = float(config["SCAN_STOP_NM"]) * 1e-9
-    manual_step = abs(float(config["SCAN_STEP_NM"]) * 1e-9)
-    if manual_step <= 0:
-        raise RuntimeError("SCAN_STEP_NM 必须 > 0")
-    span = float(stop) - float(start)
+    spec = resolve_scan_spec(config)
+    start = float(spec["start"])
+    stop = float(spec["end"])
+    manual_step = abs(float(spec["step"]))
+    unit = spec["unit"]
+    scale = float(spec["value_scale"])
+    span = stop - start
     direction = 1.0 if span >= 0 else -1.0
     intervals = max(1, int(round(abs(span) / manual_step)))
-    step = direction * manual_step
+    step_native = direction * manual_step
     points = []
     for i in range(intervals + 1):
-        value = float(start) + i * step
-        points.append({
+        native_value = start + i * step_native
+        point = {
             "index": i,
-            "name": "{:04d}_{}_{:.3f}nm".format(i, stem, nm(value)),
-            "value": value,
-            "value_nm": nm(value),
-            "step_nm": nm(abs(step)),
-        })
+            "name": "{:04d}_{}_{}".format(i, stem, _format_name_value(native_value, unit)),
+            "value": native_value * scale,
+            "value_native": native_value,
+            "value_unit": unit,
+            "value_display": _format_native_value(native_value, unit),
+            "value_deg": "",
+        }
+        if unit == "nm":
+            point["value_nm"] = native_value
+            point["step_nm"] = abs(step_native)
+        elif unit == "m":
+            point["value_nm"] = native_value * 1e9
+            point["step_nm"] = abs(step_native) * 1e9
+        elif unit == "deg":
+            point["value_deg"] = native_value
+            point["step_deg"] = abs(step_native)
+            point["value_nm"] = ""
+            point["step_nm"] = ""
+        else:
+            point["value_nm"] = ""
+            point["step_nm"] = ""
+        points.append(point)
     if mode == "test":
         points = points[:int(config["TEST_POINT_COUNT"])]
     if max_points is not None:
@@ -459,7 +563,7 @@ def save_abs2_plot(path, config, point, wavelength_m, transmission):
     ax.set_ylabel("|T|^2")
     ax.set_title("{} - {}".format(config["PERTURBATION_NAME"], point["name"]))
     ax.grid(True, alpha=0.28)
-    ax.text(0.03, 0.97, "{} = {:.3f} nm".format(config["VALUE_NAME"], point["value_nm"]), transform=ax.transAxes, va="top", ha="left", fontsize=8, bbox=dict(facecolor="white", alpha=0.82, edgecolor="#dddddd"))
+    ax.text(0.03, 0.97, point_value_text(config, point), transform=ax.transAxes, va="top", ha="left", fontsize=8, bbox=dict(facecolor="white", alpha=0.82, edgecolor="#dddddd"))
     fig.tight_layout()
     fig.savefig(str(path))
     plt.close(fig)
@@ -528,7 +632,7 @@ def write_diagnostic_png(path, point, quality):
             "Diagnostic Snapshot",
             "sample: {}".format(point.get("name", "")),
             "index: {}".format(point.get("index", "")),
-            "delta_nm: {:.6f}".format(float(point.get("value_nm", 0.0))),
+            "value: {}".format(point.get("value_display", point.get("value_nm", ""))),
             "status: {}".format((quality or {}).get("status", "")),
             "flags: {}".format(",".join((quality or {}).get("flags") or [])),
             "reasons: {}".format("; ".join((quality or {}).get("reasons") or [])),
@@ -789,7 +893,8 @@ def run(config):
     print("Lumerical 英文镜像母版 FSP: {}".format(ascii_master))
     print("输出批次目录: {}".format(run_dir))
     print("扰动: {}；降群路径: {}".format(config["PERTURBATION_NAME"], config["GROUP_PATH"]))
-    print("扫描: {} 从 {:.3f} nm 到 {:.3f} nm，计划点数 {}".format(config["VALUE_NAME"], config["SCAN_START_NM"], config["SCAN_STOP_NM"], len(points)))
+    if points:
+        print("扫描: {} 从 {} 到 {}，计划点数 {}".format(config["VALUE_NAME"], points[0].get("value_display", ""), points[-1].get("value_display", ""), len(points)))
     print("扫描计划已保存: {}".format(folders["plan"] / "scan_points.csv"))
     print("结构说明已保存: {}".format(run_dir / "结构状态说明.md"))
 
@@ -847,7 +952,7 @@ def run(config):
         })
         flush_manifest(run_dir, rows)
 
-        print("[{}/{}] 开始仿真：{}；{}={:.3f} nm".format(idx, len(points), point["name"], config["VALUE_NAME"], point["value_nm"]))
+        print("[{}/{}] 开始仿真：{}；{}".format(idx, len(points), point["name"], point_value_text(config, point)))
 
         final_quality = None
         final_summary = {"max": None}

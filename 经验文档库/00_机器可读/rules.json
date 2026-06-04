@@ -1,0 +1,44 @@
+{
+  "rules": [
+    {
+      "id": "single_fdtd_thread",
+      "type": "hard",
+      "rule": "Before every real FDTD run, check for fdtd-solutions, fdtd-engine, mpiexec, py, and python drivers. Start no new run while another .fsp is active."
+    },
+    {
+      "id": "physical_transmission_limit",
+      "type": "hard",
+      "rule": "Reject any spectrum whose physical transmission metric exceeds 1.0 at any point unless the monitor normalization is proven to be nonphysical and corrected."
+    },
+    {
+      "id": "convergence_first",
+      "type": "hard",
+      "rule": "Do not judge peak quality until mesh, simulation time, auto shutoff, and stability-factor variants give consistent peak position, peak height, linewidth, and background."
+    },
+    {
+      "id": "field_corroboration_required",
+      "type": "hard",
+      "rule": "Transmission acceptance requires a single field monitor run at the relevant resonator plane; the field map must explain the resonance mechanism."
+    },
+    {
+      "id": "no_random_sweep",
+      "type": "hard",
+      "rule": "Unjustified parameter changes are limited to at most three; every meaningful sweep must be tied to mechanism, prior iteration evidence, or a diagnostic hypothesis."
+    },
+    {
+      "id": "one_main_variable",
+      "type": "soft",
+      "rule": "Prefer changing one dominant variable per iteration so that spectral changes remain attributable."
+    },
+    {
+      "id": "artifact_retention",
+      "type": "hard",
+      "rule": "Keep original .fsp files, logs, spectra, field data, images, metrics, and reports for every simulated case."
+    },
+    {
+      "id": "evaluation_order",
+      "type": "hard",
+      "rule": "Check nonphysical values and oscillation first, convergence second, field mechanism third, then peak height, FWHM, and clean background."
+    }
+  ]
+}

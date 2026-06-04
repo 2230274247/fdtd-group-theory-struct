@@ -1,0 +1,44 @@
+{
+  "schema_version": "2026-06-02",
+  "audience": "ai_agent",
+  "purpose": "Candidate routes for building structures after the D4 sample is either accepted or rejected under strict criteria.",
+  "target": {
+    "spectrum": "single upward narrow transmission peak, T<=1, clean near-zero background, no unexplained oscillation",
+    "source_band_policy": "choose band from estimated mode wavelength, not fixed to 0.9-1.7 um"
+  },
+  "blueprints": [
+    {
+      "id": "S1_D4_qBIC_reference",
+      "status": "current_sample_under_strict_revalidation",
+      "mechanism": ["quasi_BIC", "metal_screen_aperture_coupling"],
+      "lesson": "Good for learning coupling optimization, but any Abs(T)^2>1 is non-accepted. Needs strict T<=1 and resonator-plane field explanation."
+    },
+    {
+      "id": "S2_all_dielectric_DBR_defect",
+      "mechanism": "DBR defect cavity",
+      "why_for_target": "A stopband mirror naturally suppresses background, while a defect creates a single upward passband peak.",
+      "materials": ["Si", "SiO2"],
+      "initial_formulas": ["d_H=lambda/(4*n_H)", "d_L=lambda/(4*n_L)", "d_defect=lambda/(2*n_defect)"],
+      "validation_focus": ["sideband suppression", "defect-plane field localization", "T<=1 energy consistency"],
+      "expected_failure_modes": ["multiple Fabry-Perot peaks", "sideband ripples", "defect too lossy or too weak"]
+    },
+    {
+      "id": "S3_all_dielectric_guided_mode_grating",
+      "mechanism": "guided-mode resonance / Fano resonance",
+      "why_for_target": "Periodic slab mode can create a sharp resonance; symmetry and grating strength tune linewidth.",
+      "materials": ["Si slab", "SiO2 substrate", "air holes or grooves"],
+      "initial_formulas": ["phase matching: beta_mode ~= k0*sin(theta)+2*pi*m/period", "linewidth controlled by grating perturbation"],
+      "validation_focus": ["avoid multiple grating orders", "field concentrated in slab mode", "background flatness"],
+      "expected_failure_modes": ["Fano dip instead of upward peak", "strong sidebands", "angle/polarization sensitivity"]
+    },
+    {
+      "id": "S4_EIT_bright_dark_pair",
+      "mechanism": "EIT-like bright-dark resonator coupling",
+      "why_for_target": "A broad bright mode plus narrow dark mode can create a narrow transmission window; coupling strength tunes width and peak.",
+      "materials": ["Si resonators", "optional low-loss substrate"],
+      "initial_formulas": ["T(omega)=|t_bg + A/(i(omega-omega0)+gamma_i+gamma_rad)|^2", "dark-mode leakage controlled by symmetry breaking"],
+      "validation_focus": ["bright and dark fields distinguishable", "single transparency window", "no T>1"],
+      "expected_failure_modes": ["overcoupling broadens peak", "undercoupling weak peak", "background not suppressed enough"]
+    }
+  ]
+}

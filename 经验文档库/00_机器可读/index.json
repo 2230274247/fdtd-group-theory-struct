@@ -1,0 +1,76 @@
+{
+  "meta": {
+    "name": "spectral_design_experience_library",
+    "audience": "ai_agent",
+    "purpose": "target_spectrum_to_mechanism_to_structure_to_validation_to_experience_update",
+    "format": "json",
+    "version": "2026-06-02"
+  },
+  "preferred_read_order": [
+    "spectral_acceptance_protocol",
+    "spectrum_to_mechanism_pipeline",
+    "anomaly_diagnostics",
+    "mechanisms",
+    "families",
+    "materials_effects",
+    "d4_case",
+    "rules",
+    "next_structure_blueprints"
+  ],
+  "files": [
+    {
+      "id": "spectral_acceptance_protocol",
+      "path": "00_machine_readable/spectral_acceptance_protocol.json",
+      "local_path": "00_机器可读/spectral_acceptance_protocol.json",
+      "tags": ["acceptance", "convergence", "transmission", "field_validation"]
+    },
+    {
+      "id": "spectrum_to_mechanism_pipeline",
+      "path": "00_machine_readable/spectrum_to_mechanism_pipeline.json",
+      "local_path": "00_机器可读/spectrum_to_mechanism_pipeline.json",
+      "tags": ["workflow", "inverse_design", "mechanism_selection"]
+    },
+    {
+      "id": "anomaly_diagnostics",
+      "path": "00_machine_readable/anomaly_diagnostics.json",
+      "local_path": "00_机器可读/anomaly_diagnostics.json",
+      "tags": ["diagnostics", "failure_modes", "low_weight_experience"]
+    },
+    {
+      "id": "mechanisms",
+      "path": "00_machine_readable/mechanisms.json",
+      "local_path": "00_机器可读/mechanisms.json",
+      "tags": ["mechanism", "spectrum_type", "physics"]
+    },
+    {
+      "id": "families",
+      "path": "00_machine_readable/families.json",
+      "local_path": "00_机器可读/families.json",
+      "tags": ["structure_family", "symmetry", "selection"]
+    },
+    {
+      "id": "materials_effects",
+      "path": "00_machine_readable/materials_effects.json",
+      "local_path": "00_机器可读/materials_effects.json",
+      "tags": ["materials", "loss", "index_contrast"]
+    },
+    {
+      "id": "d4_case",
+      "path": "00_machine_readable/d4_case.json",
+      "local_path": "00_机器可读/d4_case.json",
+      "tags": ["D4", "qBIC", "case_study"]
+    },
+    {
+      "id": "rules",
+      "path": "00_machine_readable/rules.json",
+      "local_path": "00_机器可读/rules.json",
+      "tags": ["rules", "single_thread", "simulation_discipline"]
+    },
+    {
+      "id": "next_structure_blueprints",
+      "path": "00_machine_readable/next_structure_blueprints.json",
+      "local_path": "00_机器可读/next_structure_blueprints.json",
+      "tags": ["future_structures", "blueprints", "three_more_routes"]
+    }
+  ]
+}

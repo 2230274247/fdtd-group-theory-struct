@@ -1,0 +1,66 @@
+{
+  "schema_version": "2026-06-02",
+  "audience": "ai_agent",
+  "purpose": "Reusable workflow from target spectrum to physical mechanism, structure choice, simulation, validation, and experience update.",
+  "pipeline": [
+    {
+      "stage": "target_spectrum_parse",
+      "inputs": ["target_peak_nm_or_range", "allowed_bandwidth", "required_background", "max_transmission", "allowed_sidebands", "polarization", "angle"],
+      "outputs": ["spectrum_spec", "acceptance_gates"],
+      "notes": "Do not lock wavelength range to 0.9-1.7 um. Choose source band around the target mechanism and expected material response."
+    },
+    {
+      "stage": "mechanism_match",
+      "inputs": ["spectrum_spec", "material_constraints", "fabrication_constraints"],
+      "outputs": ["candidate_mechanisms_ranked"],
+      "ranking_logic": [
+        "Need very narrow isolated upward peak -> prefer quasi-BIC, defect cavity, or EIT-like bright-dark coupling.",
+        "Need extremely clean broad stopband background -> prefer DBR defect, metal shield plus aperture, or guided-mode resonance with background suppression.",
+        "Need tunable center wavelength by geometry -> prefer WGM/ring, photonic crystal defect, DBR cavity, or guided-mode resonance.",
+        "Need low loss and T<=1 strict energy -> avoid excessive metal absorption or direct metal aperture normalization artifacts."
+      ]
+    },
+    {
+      "stage": "structure_family_select",
+      "inputs": ["candidate_mechanisms_ranked"],
+      "outputs": ["structure_blueprint"],
+      "selection_rules": [
+        "quasi-BIC -> high-symmetry parent plus controlled symmetry breaking",
+        "DBR defect -> multilayer mirror plus half-wave or multi-order defect",
+        "EIT-like -> bright resonator plus weakly radiating dark resonator",
+        "guided-mode resonance -> periodic grating/slab mode phase matching",
+        "WGM -> ring/disk/radial cavity with weak coupling aperture"
+      ]
+    },
+    {
+      "stage": "first_principles_parameter_estimate",
+      "outputs": ["initial_dimensions", "source_band", "mesh_priority"],
+      "formula_examples": [
+        "ring/WGM: lambda ~= 2*pi*n_eff*R/m",
+        "DBR: d_H=lambda/(4*n_H), d_L=lambda/(4*n_L)",
+        "defect cavity: d_defect=m*lambda/(2*n_eff)",
+        "quasi-BIC: gamma_rad proportional to perturbation^2",
+        "critical coupling: peak coupling optimized when external loss balances intrinsic plus other leakage"
+      ]
+    },
+    {
+      "stage": "single_monitor_simulation",
+      "hard_rules": [
+        "Only one real FDTD process at a time.",
+        "Use one spectrum monitor for transmission validation runs.",
+        "Use one field monitor for field validation runs.",
+        "Keep every original .fsp and result artifact."
+      ]
+    },
+    {
+      "stage": "strict_validation",
+      "uses": "spectral_acceptance_protocol.json",
+      "outputs": ["accepted", "rejected_reason", "next_action"]
+    },
+    {
+      "stage": "experience_update",
+      "outputs": ["confirmed_experience", "uncertain_experience", "failure_modes"],
+      "rule": "Confirmed experience gets high weight only after convergence and field cross-check. Suspicious correlations remain low weight."
+    }
+  ]
+}

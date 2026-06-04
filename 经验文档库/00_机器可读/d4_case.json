@@ -1,0 +1,88 @@
+{
+  "case_id": "D4_double_ring_eight_slit_coupled_cavity_20260602",
+  "family": "D4_qbic",
+  "goal": {
+    "type": "single_transmission_peak",
+    "peak_high": true,
+    "background_clean": true,
+    "peak_sharp": true
+  },
+  "fixed_constraints": {
+    "mesh_accuracy": 2,
+    "simulation_time_fs": 50000,
+    "auto_shutoff_min": 1e-7,
+    "single_thread_only": true,
+    "no_unexplained_sweep": true
+  },
+  "best_result_old_mesh2_only": {
+    "peak_abs2": 0.8326799413028059,
+    "peak_nm": 1329.6639629200463,
+    "fwhm_nm": 3.022610309095626,
+    "offband_p95_abs2": 0.010312126050420482,
+    "contrast_vs_p95": 80.74764963417539,
+    "elapsed_s": 1183.6321704387665
+  },
+  "latest_acceptance_status": {
+    "accepted": false,
+    "reason": "strict convergence and field-corroboration gates are not yet passed",
+    "hard_rejections": [
+      {
+        "candidate": "extra120_extra125_extra130_width34",
+        "reason": "gui_abs2_T exceeded 1.0"
+      },
+      {
+        "candidate": "extra120_width32",
+        "reason": "physical peak returned below 1 but peak height collapsed to about 0.1004"
+      },
+      {
+        "candidate": "extra115_with_critical_mesh",
+        "reason": "critical mesh validation was too slow and the 10 nm mesh run showed auto shutoff rebound"
+      }
+    ],
+    "field_status": "old field monitor was at transmission-side plane; resonator mid-plane field validation is still required before any acceptance claim"
+  },
+  "valid_path": [
+    {
+      "step": "Au -> Ag",
+      "reason": "reduce ohmic loss",
+      "effect": "peak rises, background remains controllable"
+    },
+    {
+      "step": "Ag90 -> Ag70",
+      "reason": "test if thinner metal helps",
+      "effect": "failed: peak dropped, background rose"
+    },
+    {
+      "step": "extra58 -> extra90",
+      "reason": "increase dark-mode aperture overlap",
+      "effect": "peak strongly improved"
+    },
+    {
+      "step": "extra90 -> extra110",
+      "reason": "continue same coupling mechanism",
+      "effect": "peak improved further, background slightly increased"
+    }
+  ],
+  "failure_modes": [
+    {
+      "name": "mesh_unresolved_slit",
+      "symptom": "mesh1 strong but mesh2 collapse",
+      "fix": "rebuild with resolvable geometry"
+    },
+    {
+      "name": "pec_divergence",
+      "symptom": "field diverges, peak explodes",
+      "fix": "use only as diagnostic upper bound"
+    },
+    {
+      "name": "thin_metal_backfire",
+      "symptom": "peak down, background up",
+      "fix": "stop blind thinning"
+    }
+  ],
+  "next_focus": [
+    "simplify D4 geometry if this family is revisited",
+    "reduce metal/slit mesh sensitivity before peak-height optimization",
+    "switch to DBR defect, guided-mode resonance, or EIT-like route for next independent structure"
+  ]
+}

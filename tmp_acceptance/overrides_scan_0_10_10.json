@@ -1,0 +1,8 @@
+﻿{
+  "__scan_range__": {
+    "enabled": true,
+    "start": 0,
+    "end": 10,
+    "step": 10
+  }
+}

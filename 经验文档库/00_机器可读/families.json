@@ -1,0 +1,58 @@
+{
+  "families": [
+    {
+      "id": "C2",
+      "symmetry": "two_fold",
+      "typical_structures": ["dimer", "double_disk", "two_slot_ring", "asymmetric_bar_pair"],
+      "best_for": ["simple symmetry breaking", "mode splitting", "bright_dark_coupling"],
+      "typical_spectra": ["doublet", "direction_sensitive_peak", "weak_to_medium_single_peak"],
+      "main_controls": ["radius_difference", "gap", "offset", "slot_width", "bar_length"],
+      "risk": ["background may stay high", "mode explanation easy but peak may be weak"]
+    },
+    {
+      "id": "C3",
+      "symmetry": "three_fold",
+      "typical_structures": ["three_slot_ring", "triangular_defect", "three_arm_resonator"],
+      "best_for": ["angular_mode_selection", "few-mode response", "compact perturbation"],
+      "typical_spectra": ["single_or_few_peaks", "angularly_split_modes"],
+      "main_controls": ["one_slot_width", "one_slot_angle", "arm_width", "defect_offset"],
+      "risk": ["not the strongest default route for ultra-clean background"]
+    },
+    {
+      "id": "C4",
+      "symmetry": "four_fold",
+      "typical_structures": ["cross", "square_ring", "four_slot_ring", "four_hole_slab"],
+      "best_for": ["qBIC", "clear symmetry lowering", "single-peak inverse-design seed"],
+      "typical_spectra": ["sharp_peak", "low_background_possible", "single dominant peak"],
+      "main_controls": ["diagonal_pair_detune", "single_arm_offset", "slot_width", "hole_radius", "period"],
+      "risk": ["too many free variables can hide the mechanism"]
+    },
+    {
+      "id": "C6",
+      "symmetry": "six_fold",
+      "typical_structures": ["six_slot_ring", "hexagonal_ring", "six_arm_star"],
+      "best_for": ["higher_order_angular_modes", "regular mode selection"],
+      "typical_spectra": ["multi_order_peaks", "angle-structured resonances"],
+      "main_controls": ["single_slot_defect", "alternating_slot_width", "opposite_pair_detune"],
+      "risk": ["side peaks can be hard to suppress"]
+    },
+    {
+      "id": "radial",
+      "symmetry": "near_continuous_radial",
+      "typical_structures": ["ring", "disk", "annulus"],
+      "best_for": ["WGM_like_seed", "formula_based_radius_choice", "high_Q_start"],
+      "typical_spectra": ["radial_or_azimuthal_mode_peaks", "weakly coupled narrow peak"],
+      "main_controls": ["radius", "ring_width", "small_notch", "eccentric_hole"],
+      "risk": ["without controlled coupling the peak may be weak"]
+    },
+    {
+      "id": "D4_qbic_composite",
+      "symmetry": "dihedral_four_with_controlled_detune",
+      "typical_structures": ["double_ring_eight_slot_coupled_cavity"],
+      "best_for": ["clean_background", "sharp_transmission_window", "explainable qBIC plus shielding"],
+      "typical_spectra": ["single_sharp_peak", "low_offband_transmission"],
+      "main_controls": ["eta_nm", "screen_aperture_width_nm", "screen_aperture_extra_length_nm", "inner_outer_shift_nm", "metal_thickness_nm"],
+      "risk": ["T_gt_1 or mesh dependence invalidates apparent success", "field monitor must confirm resonator-plane mode"]
+    }
+  ]
+}

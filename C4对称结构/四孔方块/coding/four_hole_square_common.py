@@ -31,6 +31,24 @@ from datetime import datetime
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+def ensure_c4_runtime_import_path():
+    here = Path(__file__).resolve()
+    candidates = [here.parent] + list(here.parents)
+    for p in candidates:
+        try:
+            if (p / "c4_runtime_common.py").exists():
+                text = str(p)
+                if text not in sys.path:
+                    sys.path.insert(0, text)
+                return text
+        except Exception:
+            pass
+    for p in candidates[:6]:
+        text = str(p)
+        if text not in sys.path:
+            sys.path.insert(0, text)
+    return None
+
 warnings.filterwarnings("ignore", category=UserWarning, module=r"numpy\._distributor_init")
 warnings.filterwarnings("ignore", message=r".*deprecated.*", module=r"matplotlib.*")
 warnings.filterwarnings("ignore", message=r".*loaded more than 1 DLL.*")
@@ -39,6 +57,7 @@ import numpy as np
 C4_ROOT = Path(__file__).resolve().parents[3]
 if str(C4_ROOT) not in sys.path:
     sys.path.insert(0, str(C4_ROOT))
+ensure_c4_runtime_import_path()
 from c4_runtime_common import chinese_timestamp, format_duration, print_runtime_progress
 
 

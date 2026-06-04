@@ -1,0 +1,46 @@
+{
+  "schema_version": "2026-06-02",
+  "audience": "ai_agent",
+  "materials": [
+    {
+      "id": "Si_Palik",
+      "role": ["high_index_dielectric_resonator", "ring_or_disk_cavity"],
+      "useful_effects": ["strong mode confinement", "compact resonators", "supports high-index contrast quasi-BIC and guided modes"],
+      "risks": ["mesh sensitivity at high-index interfaces", "geometry discretization affects narrow resonances"],
+      "optimization_notes": ["Use stable mesh before trusting peak height.", "Field maps should show energy inside or near Si resonator, not only at monitor boundary."]
+    },
+    {
+      "id": "SiO2_Glass_Palik",
+      "role": ["substrate", "low_index_layer"],
+      "useful_effects": ["low-loss background", "index contrast with Si", "common DBR low-index layer"],
+      "risks": ["substrate leakage can broaden modes", "asymmetric top/bottom environment can shift BIC-like modes"],
+      "optimization_notes": ["Check z-boundary and substrate thickness convergence for narrow peaks."]
+    },
+    {
+      "id": "Ag_Palik_1_10um",
+      "role": ["metal_screen", "aperture_coupling", "background_suppression"],
+      "useful_effects": ["suppresses direct background transmission", "apertures tune external coupling", "can create clean passband over dark background"],
+      "risks": ["loss", "normalization artifacts", "direct aperture channel", "apparent Abs(T)^2 can exceed 1 in GUI extraction"],
+      "optimization_notes": ["Any accepted physical transmittance must be <=1.", "If increasing aperture improves peak then later worsens background or peak, treat as overcoupling."]
+    },
+    {
+      "id": "Au_Palik",
+      "role": ["metal_screen", "lossy_background_control"],
+      "useful_effects": ["stable metal screen", "background suppression"],
+      "risks": ["higher loss than Ag in many near-IR cases", "lower peak transmission"],
+      "optimization_notes": ["Use Au for robustness comparison, not necessarily peak maximization."]
+    },
+    {
+      "id": "PEC",
+      "role": ["diagnostic_only"],
+      "useful_effects": ["tests limiting metal-screen behavior"],
+      "risks": ["nonphysical divergence", "unrealistic high peaks", "not acceptable as material result"],
+      "optimization_notes": ["Do not accept PEC high peaks unless the real-material counterpart also converges physically."]
+    }
+  ],
+  "general_rules": [
+    "Low-loss dielectric mechanisms are preferred when strict T<=1 and clean field interpretation are required.",
+    "Metal can clean background but introduces loss and extraction pitfalls; use it as controlled coupling or shielding, not as a magic peak booster.",
+    "If material change causes peak height and background to change in opposite directions, interpret through intrinsic loss versus external coupling before scanning geometry."
+  ]
+}

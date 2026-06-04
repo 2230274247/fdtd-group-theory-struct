@@ -22,6 +22,24 @@ import zipfile
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+def ensure_c4_runtime_import_path():
+    here = Path(__file__).resolve()
+    candidates = [here.parent] + list(here.parents)
+    for p in candidates:
+        try:
+            if (p / "c4_runtime_common.py").exists():
+                text = str(p)
+                if text not in sys.path:
+                    sys.path.insert(0, text)
+                return text
+        except Exception:
+            pass
+    for p in candidates[:6]:
+        text = str(p)
+        if text not in sys.path:
+            sys.path.insert(0, text)
+    return None
+
 warnings.filterwarnings("ignore", category=UserWarning, module=r"numpy\._distributor_init")
 warnings.filterwarnings("ignore", message=r".*loaded more than 1 DLL.*")
 warnings.filterwarnings("ignore", message=r".*deprecated.*")
@@ -31,6 +49,7 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+ensure_c4_runtime_import_path()
 
 from fdtd_autotune_common import (
     normalize_autotune_config,
@@ -281,7 +300,8 @@ def offset_upper_bound(geometry, config, pillar_index, unit_x, unit_y):
         return 0.0
     boundary_limit = min(positive)
 
-    # 濡傛灉鐢ㄦ埛鎶婂亸绉绘柟鍚戞敼鎴愭湞鍐呮垨鏂滃悜锛岄渶瑕佸悓鏃堕伩鍏嶇洰鏍囨煴涓庡叾浠栨煴鐩镐氦銆?    # 鏉′欢锛殀褰撳墠浣嶇疆 + t * 鏂瑰悜 - 鍏朵粬鏌变腑蹇億 >= r_self + r_other + min_gap銆?    collision_limits = []
+    # Avoid collisions with other pillars while moving along the requested direction.
+    collision_limits = []
     for other in geometry["pillars"]:
         if int(other["index"]) == int(pillar_index):
             continue

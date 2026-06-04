@@ -1,17 +1,17 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
-FDTD 鎵板姩鑴氭湰鎬绘帶鍏ュ彛
+FDTD 扰动脚本总控入口
 ====================
 
-鏀剧疆浣嶇疆锛欻:\\FDTD outcome\\struct\\缇よ_struct\\fdtd_master_controller.py
+放置位置：H:\\FDTD outcome\\struct\\群论_struct\\fdtd_master_controller.py
 
-鏍稿績鑳藉姏锛?
-1. 鑷姩鎵弿鏈洰褰曚笅鎵€鏈夋瘝缁撴瀯鐨?coding 鏂囦欢澶癸紝鍙戠幇鏂板 run_*.py 鑴氭湰銆?
-2. 鎸夆€滃绉扮被鍒?/ 姣嶇粨鏋?/ 鎵板姩鍚嶁€濆垎绫诲睍绀猴紝骞舵樉绀烘渶杩?test/full 缁撴灉銆?
-3. 杩愯鍓嶇敤涓枃瑙ｉ噴姣忎釜鑴氭湰椤堕儴鈥滅敤鎴蜂富瑕佷慨鏀瑰尯鈥濈殑鍚箟銆?
-4. 鍙湪鎬绘帶閲屼复鏃惰鐩栧皬鑴氭湰鐨?start / end / step锛屼笉淇敼鍘熻剼鏈€?
-5. 渚濇鎴栧苟琛岃繍琛屽皬鑴氭湰锛屽苟瀹炴椂杞彂瀛愯剼鏈緭鍑恒€?
-6. Ctrl+C 鏃跺悓鏃剁粨鏉熸€绘帶銆佸瓙鑴氭湰鍜屽瓙鑴氭湰鍚姩鐨?FDTD 杩涚▼鏍戙€?
+核心能力：
+1. 自动扫描本目录下所有母结构的 coding 文件夹，发现新增 run_*.py 脚本。
+2. 按“对称类别 / 母结构 / 扰动名”分类展示，并显示最近 test/full 结果。
+3. 运行前用中文解释每个脚本顶部“用户主要修改区”的含义。
+4. 可在总控里临时覆盖小脚本的 start / end / step，不修改原脚本。
+5. 依次或并行运行小脚本，并实时转发子脚本输出。
+6. Ctrl+C 时同时结束总控、子脚本和子脚本启动的 FDTD 进程树。
 """
 from __future__ import print_function
 
@@ -33,7 +33,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 
-# ========================= 鐢ㄦ埛涓昏淇敼鍖?=========================
+# ========================= 用户主要修改区 =========================
 STRUCT_ROOT = Path(__file__).resolve().parent
 SCRIPT_PREFIXES = ("run_",)
 EXCLUDE_NAME_PARTS = ("common", "__pycache__", ".bak", ".tmp")
@@ -68,40 +68,15 @@ SCAN_START_WORDS = ("START", "BEGIN", "MIN")
 SCAN_END_WORDS = ("END", "STOP", "MAX")
 SCAN_STEP_WORDS = ("STEP", "DELTA", "INTERVAL")
 SCAN_UNITS = ("NM", "UM", "M", "DEG", "RAD")
-SCAN_OVERRIDE_BLOCK_KEYS = {
-    "START_NM", "END_NM", "STEP_NM",
-    "SCAN_START_NM", "SCAN_STOP_NM", "SCAN_STEP_NM",
-    "START_M", "END_M", "STEP_M",
-    "SCAN_START_M", "SCAN_STOP_M", "SCAN_STEP_M",
-    "START_DEG", "END_DEG", "STEP_DEG",
-    "SCAN_START_DEG", "SCAN_STOP_DEG", "SCAN_STEP_DEG",
-    "ANGLE_START_DEG", "ANGLE_STOP_DEG", "ANGLE_STEP_DEG",
-    "START", "END", "STEP", SCAN_RANGE_OVERRIDE_KEY,
-}
 
-# 鎬绘帶璁や负鈥滄槑鏄惧嵄闄┾€濈殑涓存椂杈撳叆锛涜秴杩囧悗浼氫簩娆＄‘璁ゃ€?
+# 总控认为“明显危险”的临时输入；超过后会二次确认。
 SOFT_LENGTH_LIMIT_UM = 0.90
 SOFT_ANGLE_LIMIT_DEG = 360.0
 
-# 瀹氭湡娓呯悊 controller_logs 涓嬬殑鏃ф€绘帶杩愯鐩綍銆傚彧娓呯悊鐢辨湰鎬绘帶鍒涘缓鐨?
-# controller_run_* 鏂囦欢澶癸紝涓嶄細娓呯悊浠讳綍缁撴瀯 results 鐩綍銆?
+# 定期清理 controller_logs 下的旧总控运行目录。只清理由本总控创建的
+# controller_run_* 文件夹，不会清理任何结构 results 目录。
 AUTO_CLEAN_OLD_CONTROLLER_RUNS = True
 KEEP_CONTROLLER_RUN_DAYS = 14
-DISCOVERY_EXCLUDE_DIR_NAMES = {
-    "results",
-    "controller_logs",
-    "runtime_state",
-    "_stage9_script_recovery_backup",
-    "backup",
-    "backups",
-    "__pycache__",
-    ".git",
-    ".venv",
-    "venv",
-    "env",
-    "dist",
-    "build",
-}
 # ================================================================
 
 
@@ -130,7 +105,6 @@ FAILED_LOCK = threading.Lock()
 STDIN_COMMANDS = queue.Queue()
 STDIN_LISTENER_STARTED = False
 STDIN_LISTENER_LOCK = threading.Lock()
-RESOLVED_OVERRIDE_REPORTS = []
 
 
 def now_stamp():
@@ -155,87 +129,26 @@ def safe_console_print(text, end=""):
         print(safe_text, end=end)
 
 
-def _append_unique_path(paths, p):
-    if p is None:
-        return
-    try:
-        text = str(Path(p).resolve())
-    except Exception:
-        text = str(p)
-    if not text:
-        return
-    low = text.lower()
-    for old in paths:
-        if old.lower() == low:
-            return
-    paths.append(text)
-
-
-def build_child_pythonpath(record, project_root, script_path=None):
-    paths = []
-    project_root = Path(project_root).resolve()
-    resolved_script = Path(script_path or record["script"]).resolve()
-    script_dir = resolved_script.parent
-
-    _append_unique_path(paths, script_dir)
-    for parent in script_dir.parents:
-        _append_unique_path(paths, parent)
-        try:
-            if parent.resolve() == project_root:
-                break
-        except Exception:
-            pass
-
-    if record.get("structure_root"):
-        _append_unique_path(paths, record.get("structure_root"))
-    _append_unique_path(paths, project_root)
-
-    for name in ("C2瀵圭О缁撴瀯", "C3瀵圭О缁撴瀯", "C4瀵圭О缁撴瀯", "C6瀵圭О缁撴瀯", "杩戝緞鍚戦珮瀵圭О缁撴瀯"):
-        p = project_root / name
-        if p.exists():
-            _append_unique_path(paths, p)
-
-    old_pythonpath = os.environ.get("PYTHONPATH", "")
-    if old_pythonpath:
-        for item in old_pythonpath.split(os.pathsep):
-            _append_unique_path(paths, item)
-    return os.pathsep.join(paths)
-
-
-def build_child_env(record, project_root, script_path=None):
-    env = os.environ.copy()
-    resolved_script = Path(script_path or record["script"]).resolve()
-    env["PYTHONPATH"] = build_child_pythonpath(record, project_root, script_path=resolved_script)
-    env["PYTHONIOENCODING"] = "{}:replace".format(CHILD_OUTPUT_ENCODING)
-    env["PYTHONUNBUFFERED"] = "1"
-    env["PROJECT_ROOT"] = str(Path(project_root).resolve())
-    env["FDTD_PROJECT_ROOT"] = str(Path(project_root).resolve())
-    env["FDTD_CHILD_SCRIPT"] = str(resolved_script)
-    if record.get("structure_root"):
-        env["FDTD_CHILD_STRUCTURE_ROOT"] = str(Path(record["structure_root"]).resolve())
-    return env
-
-
 def ensure_numpy_available(python_exe):
     """Ensure numpy exists in the same interpreter used to launch child scripts."""
     probe_cmd = [str(python_exe), "-c", "import numpy; print(numpy.__version__)"]
     try:
         out = subprocess.check_output(probe_cmd, stderr=subprocess.STDOUT, universal_newlines=True, encoding="utf-8", errors="replace")
         ver = (out or "").strip().splitlines()[-1] if out else "unknown"
-        print("Dependency check: numpy available ({})".format(ver))
+        print("依赖检查：numpy 已可用（{}）".format(ver))
         return
     except Exception as exc:
-        print("Dependency check: numpy missing in current interpreter, preparing auto-install.")
-        print("  瑙ｉ噴鍣細{}".format(python_exe))
-        print("  鎺㈡祴閿欒锛歿}".format(exc))
+        print("依赖检查：当前解释器缺少 numpy，准备自动安装。")
+        print("  解释器：{}".format(python_exe))
+        print("  探测错误：{}".format(exc))
     install_cmd = [str(python_exe), "-m", "pip", "install", "numpy"]
-    print("鎵ц瀹夎鍛戒护锛歿}".format(" ".join(install_cmd)))
+    print("执行安装命令：{}".format(" ".join(install_cmd)))
     rc = subprocess.call(install_cmd)
     if rc != 0:
-        raise RuntimeError("numpy install failed (exit={}); please install manually and retry.".format(rc))
+        raise RuntimeError("numpy 安装失败（exit={}），请手动在该解释器安装后重试。".format(rc))
     out = subprocess.check_output(probe_cmd, stderr=subprocess.STDOUT, universal_newlines=True, encoding="utf-8", errors="replace")
     ver = (out or "").strip().splitlines()[-1] if out else "unknown"
-    print("Dependency check: numpy install completed ({})".format(ver))
+    print("依赖检查：numpy 安装完成（{}）".format(ver))
 
 
 def is_candidate_script(path):
@@ -268,24 +181,10 @@ def classify_script(root, script_path):
     }
 
 
-def is_excluded_discovery_path(path):
-    for part in path.parts:
-        lower = str(part).lower()
-        if lower in DISCOVERY_EXCLUDE_DIR_NAMES:
-            return True
-        if lower.startswith("_stage9_"):
-            return True
-    return False
-
-
 def discover_scripts(root):
     records = []
     for coding_dir in root.rglob("coding"):
-        if is_excluded_discovery_path(coding_dir):
-            continue
         for path in coding_dir.rglob("*.py"):
-            if is_excluded_discovery_path(path):
-                continue
             if is_candidate_script(path):
                 item = classify_script(root, path)
                 if item:
@@ -311,7 +210,7 @@ def cleanup_old_controller_runs():
         except Exception:
             pass
     if removed:
-        print("Auto-cleaned {} old controller temp directories (older than {} days).".format(removed, KEEP_CONTROLLER_RUN_DAYS))
+        print("已自动清理 {} 个超过 {} 天的旧总控临时目录。".format(removed, KEEP_CONTROLLER_RUN_DAYS))
 
 
 def newest_run_dir(structure_root, perturbation, mode):
@@ -357,40 +256,32 @@ def count_csv_rows(path):
         return None
 
 
-def parse_user_edit_region(script_path):
-    return []
-
-
-def detect_scan_from_script(script_path):
-    return None
-
-
 def latest_result_text(item, mode):
     rd = newest_run_dir(item["structure_root"], item["perturbation"], mode)
     if rd is None:
-        return "none"
+        return "无"
     done = count_csv_rows(rd / "04_logs" / "manifest.csv")
     plan = count_csv_rows(rd / "00_scan_plan" / "scan_points.csv")
     extra = []
     if done is not None:
-        extra.append("done {}".format(done))
+        extra.append("完成{}点".format(done))
     if plan is not None:
-        extra.append("plan {}".format(plan))
-    return rd.name + (" ({})".format(", ".join(extra)) if extra else "")
+        extra.append("计划{}点".format(plan))
+    return rd.name + (" ({})".format("，".join(extra)) if extra else "")
 
 
 def latest_result_brief(item, mode):
     rd = newest_run_dir(item["structure_root"], item["perturbation"], mode)
     if rd is None:
-        return "none"
+        return "无"
     done = count_csv_rows(rd / "04_logs" / "manifest.csv")
     plan = count_csv_rows(rd / "00_scan_plan" / "scan_points.csv")
     parts = []
     if done is not None:
-        parts.append("done {}".format(done))
+        parts.append("完成{}点".format(done))
     if plan is not None:
-        parts.append("plan {}".format(plan))
-    return "{}{}".format(rd.name, " ({})".format(", ".join(parts)) if parts else "")
+        parts.append("计划{}点".format(plan))
+    return "{}{}".format(rd.name, "（{}）".format("，".join(parts)) if parts else "")
 
 
 def supports_color():
@@ -414,10 +305,10 @@ def run_state(item):
     has_test = newest_run_dir(item["structure_root"], item["perturbation"], "test") is not None
     has_full = newest_run_dir(item["structure_root"], item["perturbation"], "full") is not None
     if has_full:
-        return "full", "FULL done", "32"   # green
+        return "full", "FULL完整已跑", "32"   # green
     if has_test:
-        return "test", "TEST done", "33"   # yellow
-    return "none", "TODO", "90"            # gray
+        return "test", "TEST仅测试", "33"       # yellow
+    return "none", "TODO未跑", "90"          # gray
 
 
 def collection_state(items):
@@ -426,43 +317,43 @@ def collection_state(items):
         state, _, _ = run_state(item)
         counts[state] += 1
     if counts["full"] and counts["full"] == len(items):
-        summary = "FULL瀹屾暣 {}/{} | TEST浠呮祴璇?0 | TODO鏈窇 0".format(counts["full"], len(items))
+        summary = "FULL完整 {}/{} | TEST仅测试 0 | TODO未跑 0".format(counts["full"], len(items))
         code = "32"
     elif counts["full"]:
-        summary = "FULL瀹屾暣 {} | TEST浠呮祴璇?{} | TODO鏈窇 {}".format(counts["full"], counts["test"], counts["none"])
+        summary = "FULL完整 {} | TEST仅测试 {} | TODO未跑 {}".format(counts["full"], counts["test"], counts["none"])
         code = "32"
     elif counts["test"]:
-        summary = "FULL瀹屾暣 0 | TEST浠呮祴璇?{} | TODO鏈窇 {}".format(counts["test"], counts["none"])
+        summary = "FULL完整 0 | TEST仅测试 {} | TODO未跑 {}".format(counts["test"], counts["none"])
         code = "33"
     else:
-        summary = "FULL瀹屾暣 0 | TEST浠呮祴璇?0 | TODO鏈窇 {}".format(counts["none"])
+        summary = "FULL完整 0 | TEST仅测试 0 | TODO未跑 {}".format(counts["none"])
         code = "90"
     return color("[{}]".format(summary), code)
 
 
 def print_catalog(records):
-    safe_console_print("\nDiscovered runnable scripts: {}\n".format(len(records)))
-    safe_console_print("Status: FULL done / TEST done / TODO\n")
+    print("\n发现可运行脚本 {} 个：".format(len(records)))
+    print("状态说明：FULL完整已跑 = 已跑过完整 full；TEST仅测试 = 只跑过 test 但未 full；TODO未跑 = test/full 都没有。")
     if USE_COLOR:
-        safe_console_print("Color hint: {} / {} / {}\n".format(color("green=FULL", "32"), color("yellow=TEST", "33"), color("gray=TODO", "90")))
-    safe_console_print("=" * 120 + "\n")
+        print("颜色辅助：{} / {} / {}。".format(color("绿色=FULL", "32"), color("黄色=TEST", "33"), color("灰色=TODO", "90")))
+    print("=" * 120)
     last_sym = last_mother = None
     for item in records:
         if item["symmetry"] != last_sym:
-            safe_console_print("[{}]\n".format(item["symmetry"]))
+            print("[{}]".format(item["symmetry"]))
             last_sym = item["symmetry"]
             last_mother = None
         if item["mother"] != last_mother:
-            safe_console_print("  - {}\n".format(item["mother"]))
+            print("  - {}".format(item["mother"]))
             last_mother = item["mother"]
         _, state_text, state_color = run_state(item)
-        state_badge = color("status {}".format(state_text), state_color)
-        line = "      [{:03d}] {:<18} {:<44} {:<18} latest test: {} | latest full: {}".format(
+        state_badge = color("状态={}".format(state_text), state_color)
+        line = "      [{:03d}] {:<18} {:<44} {:<18} 最近test: {} | 最近full: {}".format(
             item["id"], item["perturbation"], item["script"].name, state_badge,
             latest_result_brief(item, "test"), latest_result_brief(item, "full")
         )
-        safe_console_print(line + "\n")
-    safe_console_print("=" * 120 + "\n")
+        print(line)
+    print("=" * 120)
 
 
 def parse_literal_assignments(script_path):
@@ -550,63 +441,193 @@ def runtime_groups(values):
 
 
 def explain_script(item):
+    values, _ = parse_literal_assignments(item["script"])
+    groups = scan_groups(values)
     lines = []
     lines.append("[{:03d}] {} / {} / {}".format(item["id"], item["symmetry"], item["mother"], item["perturbation"]))
-    lines.append("  script: {}".format(item["relative"]))
-    lines.append("  latest TEST: {}".format(latest_result_text(item, "test")))
-    lines.append("  latest FULL: {}".format(latest_result_text(item, "full")))
-    edits = parse_user_edit_region(item["script"])
-    if not edits:
-        lines.append("  user-edit region: not found")
-    else:
-        lines.append("  user-edit region:")
-        for it in edits:
-            key = it["key"]
-            val = it["value"]
-            note = it["comment"]
-            if val is None:
-                lines.append("    - {}: {}".format(key, note))
-            else:
-                lines.append("    - {} = {} ({})".format(key, val, note))
-    scan_info = detect_scan_from_script(item["script"])
-    if scan_info:
-        lines.append("  scan: {} from {} to {}, step {}".format(scan_info["start_key"], scan_info["start"], scan_info["end"], scan_info["step"]))
+    lines.append("脚本：{}".format(item["script"].name))
+    for g in groups:
+        if g["unit"] == "NM":
+            lines.append("  扫描范围：{} 从 {} 到 {}，步长 {}。".format(
+                g["prefix"], fmt_value_by_key(g["start_key"], g["start"]),
+                fmt_value_by_key(g["end_key"], g["end"]), fmt_value_by_key(g["step_key"], g["step"])
+            ))
+        else:
+            lines.append("  扫描范围：{} 从 {} 到 {}，步长 {}。".format(
+                g["prefix"], fmt_value_by_key(g["start_key"], g["start"]),
+                fmt_value_by_key(g["end_key"], g["end"]), fmt_value_by_key(g["step_key"], g["step"])
+            ))
+    runtime_keys = FDTD_RUNTIME_KEYS if "SIMULATION_TIME_FS" in values else FDTD_RUNTIME_KEYS + LEGACY_FDTD_RUNTIME_KEYS
+    for key in ("RUN_MODE_DEFAULT", "TEST_POINT_COUNT") + runtime_keys:
+        if key in values:
+            lines.append("  {}：{}".format(key, fmt_value_by_key(key, values[key])))
+    if not groups:
+        lines.append("  未识别到标准 start/end/step 组；仍可由原脚本自身控制。")
     return "\n".join(lines)
 
-def choose_child_mode(default_mode):
-    if default_mode in ("preview", "test", "full"):
-        return default_mode
-    while True:
-        mode = input("Choose child mode [preview/test/full]: ").strip().lower()
-        if mode in ("preview", "test", "full"):
-            return mode
-
-def choose_run_style(default_style, child_mode):
-    if default_style in ("sequential", "parallel"):
-        return default_style
-    while True:
-        style = input("Choose run style [sequential/parallel]: ").strip().lower()
-        if style in ("sequential", "parallel"):
-            if child_mode == "full" and style == "parallel":
-                ok = input("full+parallel is risky, type YES to continue: ").strip()
-                if ok != "YES":
-                    continue
-            return style
 
 def select_records(records):
-    print("\nEnter IDs like 1,3,5-8; leave empty to cancel.")
-    raw = input("IDs: ").strip()
-    if not raw:
-        return []
-    selected = select_records_noninteractive(records, raw)
-    return selected or []
+    while True:
+        print("\n请选择运行范围：")
+        print("  1 = 单个脚本")
+        print("  2 = 多个脚本编号，例如 1,3,5-8")
+        print("  3 = 某个母结构下全部脚本")
+        print("  4 = 全部脚本")
+        print("  5 = 只查看列表，不运行")
+        print("  0 = 退出总控")
+        choice = input("请输入 0/1/2/3/4/5：").strip()
+        if choice in ("0", "5"):
+            return []
+        if choice == "1":
+            raw = input("脚本编号，输入 0 返回上一级：").strip()
+            if raw == "0":
+                continue
+            idx = int(raw)
+            return [records[idx - 1]]
+        if choice == "2":
+            raw = input("脚本编号列表，输入 0 返回上一级：").replace("，", ",").strip()
+            if raw == "0":
+                continue
+            ids = []
+            for part in raw.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                if "-" in part:
+                    a, b = [int(x.strip()) for x in part.split("-", 1)]
+                    ids.extend(range(min(a, b), max(a, b) + 1))
+                else:
+                    ids.append(int(part))
+            by_id = {x["id"]: x for x in records}
+            return [by_id[i] for i in ids]
+        if choice == "3":
+            pairs = []
+            seen = set()
+            for item in records:
+                key = (item["symmetry"], item["mother"])
+                if key not in seen:
+                    seen.add(key)
+                    pairs.append(key)
+            print("\n请选择母结构：")
+            print("  [00] 返回上一级")
+            for i, (sym, mother) in enumerate(pairs, 1):
+                items = [x for x in records if x["symmetry"] == sym and x["mother"] == mother]
+                print("  [{:02d}] {} / {} ({} 个脚本) {}".format(i, sym, mother, len(items), collection_state(items)))
+            raw = input("母结构编号：").strip()
+            if raw in ("0", "00"):
+                continue
+            idx = int(raw)
+            sym, mother = pairs[idx - 1]
+            return [x for x in records if x["symmetry"] == sym and x["mother"] == mother]
+        if choice == "4":
+            return list(records)
+        print("只能输入 0/1/2/3/4/5，请重新选择。")
+
+
+def choose_child_mode(default_mode):
+    if default_mode != "ask":
+        return default_mode
+    while True:
+        print("\n请选择传给子脚本的模式：")
+        print("  1 = preview：只生成计划，不仿真")
+        print("  2 = test：每个脚本只跑测试点")
+        print("  3 = full：完整仿真")
+        print("说明：PyCharm 运行窗口不能稳定把输入继续传给子脚本，所以总控不再使用 child ask。")
+        choice = input("请输入 1/2/3：").strip()
+        if choice in ("1", "2", "3"):
+            return {"1": "preview", "2": "test", "3": "full"}[choice]
+        print("只能输入 1/2/3，请重新选择。")
+
+
+def choose_run_style(default_style, child_mode):
+    if child_mode == "ask":
+        return "sequential"
+    if default_style != "ask":
+        return default_style
+    print("\n请选择运行方式：")
+    print("  1 = 依次运行，最稳")
+    print("  2 = 并行运行，适合 preview；真实仿真请谨慎")
+    style = {"1": "sequential", "2": "parallel"}[input("请输入 1/2：").strip()]
+    if style == "parallel" and child_mode == "full":
+        if input("full 并行很占资源，输入 YES 确认：").strip() != "YES":
+            return "sequential"
+    return style
+
+
+def suspicious_override(unit, start, end, step):
+    if step is not None and float(step) <= 0:
+        return "step 必须大于 0"
+    if unit == "NM":
+        biggest = max(abs(float(start or 0)), abs(float(end or 0)), abs(float(step or 0)))
+        if biggest > SOFT_LENGTH_LIMIT_UM * 1000.0:
+            return "长度参数超过 {:.3f} um 的软限制".format(SOFT_LENGTH_LIMIT_UM)
+    if unit == "DEG":
+        biggest = max(abs(float(start or 0)), abs(float(end or 0)), abs(float(step or 0)))
+        if biggest > SOFT_ANGLE_LIMIT_DEG:
+            return "角度参数超过 {:.1f} deg 的软限制".format(SOFT_ANGLE_LIMIT_DEG)
+    return None
+
 
 def ask_overrides(selected):
-    print("\nOptional overrides disabled by default; press Enter to skip.")
-    raw = input("Overrides JSON (string or file path): ").strip()
-    if not raw:
+    print("\n是否在总控中临时覆盖 start/end/step 和 FDTD 运行参数？")
+    print("FDTD 参数包括：simulation time (fs)、auto shutoff min、mesh accuracy、dt stability factor。")
+    print("说明：这是临时覆盖，会生成临时脚本副本运行，不修改原脚本。")
+    if input("输入 y 开始设置，其他键跳过：").strip().lower() != "y":
         return {}
-    return parse_overrides_json(raw)
+
+    overrides = {}
+    for item in selected:
+        values, _ = parse_literal_assignments(item["script"])
+        groups = scan_groups(values)
+        runtime = runtime_groups(values)
+        if not groups and not runtime:
+            continue
+        print("\n" + explain_script(item))
+        repl = {}
+
+        if groups:
+            if len(groups) == 1:
+                group = groups[0]
+            else:
+                print("该脚本有多个扫描组：")
+                for i, g in enumerate(groups, 1):
+                    print("  [{}] {} ({})".format(i, g["prefix"], g["unit"]))
+                group = groups[int(input("请选择要覆盖的扫描组编号：").strip()) - 1]
+            if input("是否覆盖这个脚本的 {} start/end/step？y/N：".format(group["prefix"])).strip().lower() == "y":
+                raw_start = input("start，空白表示不改，当前 {}：".format(fmt_value_by_key(group["start_key"], group["start"]))).strip()
+                raw_end = input("end，空白表示不改，当前 {}：".format(fmt_value_by_key(group["end_key"], group["end"]))).strip()
+                raw_step = input("step，空白表示不改，当前 {}：".format(fmt_value_by_key(group["step_key"], group["step"]))).strip()
+                start = float(raw_start) if raw_start else None
+                end = float(raw_end) if raw_end else None
+                step = float(raw_step) if raw_step else None
+                warn = suspicious_override(group["unit"], start, end, step)
+                if warn:
+                    ans = input("警告：{}。是否仍继续？输入 YES 继续：".format(warn)).strip()
+                    if ans != "YES":
+                        start = end = step = None
+                if start is not None:
+                    repl[group["start_key"]] = start
+                if end is not None:
+                    repl[group["end_key"]] = end
+                if step is not None:
+                    repl[group["step_key"]] = step
+
+        if runtime and input("是否覆盖这个脚本的 FDTD 运行参数？y/N：").strip().lower() == "y":
+            for group in runtime:
+                key = group["key"]
+                raw = input("{}，空白表示不改，当前 {}：".format(key, fmt_value_by_key(key, values.get(key)))).strip()
+                if not raw:
+                    continue
+                value = float(raw)
+                if value <= 0:
+                    print("{} 必须大于 0，已忽略。".format(key))
+                    continue
+                repl[key] = value
+
+        if repl:
+            overrides[str(item["script"])] = repl
+    return overrides
+
 
 def parse_overrides_json(raw):
     if not raw:
@@ -620,13 +641,12 @@ def parse_overrides_json(raw):
         for key, value in data.items():
             if isinstance(value, dict):
                 key_text = str(key)
-                if key_text not in ("*", SCAN_RANGE_OVERRIDE_KEY):
+                if key_text != "*":
                     try:
                         key_text = str(Path(key_text).resolve())
                     except Exception:
                         pass
-                parsed = {str(k): v for k, v in value.items() if v not in (None, "")}
-                overrides[key_text] = parsed
+                overrides[key_text] = {str(k): v for k, v in value.items() if v not in (None, "")}
     return overrides
 
 
@@ -829,406 +849,6 @@ def _coerce_scan_range_object(scan_range):
     return out
 
 
-def _scan_estimated_points(start, end, step):
-    try:
-        start = float(start)
-        end = float(end)
-        step = float(step)
-        if step <= 0 or end < start:
-            return None
-        return int((end - start) / step + 1e-9) + 1
-    except Exception:
-        return None
-
-
-def _truthy(value):
-    if isinstance(value, bool):
-        return value
-    text = str(value or "").strip().lower()
-    return text in ("1", "true", "yes", "y", "on")
-
-
-def _to_float_or_none(value):
-    if value in (None, ""):
-        return None
-    try:
-        out = float(value)
-    except Exception:
-        return None
-    if out != out or out in (float("inf"), float("-inf")):
-        return None
-    return out
-
-
-def validate_scan_range_payload(scan_range):
-    errors = []
-    payload = dict(scan_range or {}) if isinstance(scan_range, dict) else {}
-    start = _to_float_or_none(payload.get("start"))
-    end = _to_float_or_none(payload.get("end"))
-    step = _to_float_or_none(payload.get("step"))
-    if start is None:
-        errors.append("start must be a finite number")
-    if end is None:
-        errors.append("end must be a finite number")
-    if step is None:
-        errors.append("step must be a finite number")
-    if step is not None and step <= 0:
-        errors.append("step must be > 0, got {}".format(step))
-    if start is not None and end is not None and end < start:
-        errors.append("end must be >= start")
-    estimated_points = None
-    if start is not None and end is not None and step is not None and step > 0:
-        estimated_points = _scan_estimated_points(start, end, step)
-        if estimated_points is None:
-            errors.append("estimated_points is invalid")
-        else:
-            if estimated_points < 1:
-                errors.append("estimated_points must be >= 1")
-            if estimated_points > 100000:
-                errors.append("estimated_points is too large (>100000)")
-    return {
-        "ok": len(errors) == 0,
-        "errors": errors,
-        "start": start,
-        "end": end,
-        "step": step,
-        "estimated_points": estimated_points,
-    }
-
-
-def build_scan_range_failed_reports(selected_items, scan_range, errors):
-    reports = []
-    reason = "; ".join([str(x) for x in (errors or []) if str(x).strip()]) or "scan_range validation failed"
-    reason = "invalid __scan_range__: " + reason
-    for item in (selected_items or []):
-        script_path = Path(item.get("script")) if item.get("script") is not None else ""
-        reports.append(_normalized_scan_report({
-            "status": "failed",
-            "applied": False,
-            "failed": True,
-            "phase": "preflight_scan_range_validation",
-            "group_prefix": "",
-            "unit": str((scan_range or {}).get("unit") or ""),
-            "start_key": "",
-            "end_key": "",
-            "step_key": "",
-            "start": (scan_range or {}).get("start"),
-            "end": (scan_range or {}).get("end"),
-            "step": (scan_range or {}).get("step"),
-            "estimated_points": None,
-            "reason": reason,
-            "scan_range": {
-                "enabled": bool((scan_range or {}).get("enabled", True)),
-                "start": (scan_range or {}).get("start"),
-                "end": (scan_range or {}).get("end"),
-                "step": (scan_range or {}).get("step"),
-            },
-            "launch_blocked": True,
-        }, script_path=script_path, item=item))
-    return reports
-
-
-def normalize_overrides_shape(overrides):
-    normalized = {}
-    source = overrides if isinstance(overrides, dict) else {}
-    for key, value in source.items():
-        if isinstance(value, dict):
-            normalized[str(key)] = dict(value)
-    wildcard = dict(normalized.get("*") or {})
-    scan = None
-    if isinstance(normalized.get(SCAN_RANGE_OVERRIDE_KEY), dict):
-        scan = dict(normalized.get(SCAN_RANGE_OVERRIDE_KEY))
-    elif isinstance(wildcard.get(SCAN_RANGE_OVERRIDE_KEY), dict):
-        scan = dict(wildcard.get(SCAN_RANGE_OVERRIDE_KEY))
-    if scan:
-        normalized[SCAN_RANGE_OVERRIDE_KEY] = dict(scan)
-    if wildcard:
-        normalized["*"] = wildcard
-    return normalized, scan
-
-
-def enhanced_scan_groups(values):
-    groups = list(scan_groups(values))
-    seen = set((g.get("start_key"), g.get("end_key"), g.get("step_key")) for g in groups)
-
-    def add(prefix, unit, start_key, end_key, step_key):
-        key = (start_key, end_key, step_key)
-        if key in seen:
-            return
-        if start_key in values and end_key in values and step_key in values:
-            seen.add(key)
-            groups.append({
-                "prefix": prefix,
-                "unit": unit,
-                "start_key": start_key,
-                "end_key": end_key,
-                "step_key": step_key,
-                "start": values[start_key],
-                "end": values[end_key],
-                "step": values[step_key],
-            })
-
-    for key in list(values.keys()):
-        m = re.match(r"(.+)_START_(NM|M|DEG)$", str(key))
-        if not m:
-            continue
-        prefix, unit = m.group(1), m.group(2)
-        for end_word in ("END", "STOP"):
-            add(prefix, unit, key, "{}_{}_{}".format(prefix, end_word, unit), "{}_STEP_{}".format(prefix, unit))
-
-    for unit in ("NM", "M", "DEG"):
-        add("SCAN", unit, "SCAN_START_{}".format(unit), "SCAN_END_{}".format(unit), "SCAN_STEP_{}".format(unit))
-        add("SCAN", unit, "SCAN_START_{}".format(unit), "SCAN_STOP_{}".format(unit), "SCAN_STEP_{}".format(unit))
-    return groups
-
-
-def choose_scan_group_for_item(item, groups, scan_cfg):
-    if not groups:
-        return None
-    preferred_prefix = str((scan_cfg or {}).get("group_prefix") or "").strip()
-    if preferred_prefix:
-        for group in groups:
-            if str(group.get("prefix") or "").strip() == preferred_prefix:
-                return group
-    unit = str((scan_cfg or {}).get("unit") or "").strip().upper()
-    if unit:
-        for group in groups:
-            g_unit = str(group.get("unit") or "").strip().upper()
-            if g_unit in (unit, "RAW") or unit == "RAW":
-                return group
-    return groups[0]
-
-
-def resolve_scan_range_for_selected(selected, overrides):
-    overrides, scan_cfg = normalize_overrides_shape(overrides)
-    if not isinstance(scan_cfg, dict) or not _truthy(scan_cfg.get("enabled", True)):
-        return overrides
-
-    start = _to_float_or_none(scan_cfg.get("start"))
-    end = _to_float_or_none(scan_cfg.get("end"))
-    step = _to_float_or_none(scan_cfg.get("step"))
-    reason = ""
-    if start is None or end is None or step is None:
-        reason = "invalid start/end/step"
-    elif step <= 0:
-        reason = "step must be > 0"
-    elif end < start:
-        reason = "end must be >= start"
-
-    wildcard = dict(overrides.get("*") or {})
-    wildcard.pop(SCAN_RANGE_OVERRIDE_KEY, None)
-    overrides["*"] = wildcard
-    overrides[SCAN_RANGE_OVERRIDE_KEY] = dict(scan_cfg)
-
-    for item in selected:
-        script_key = str(item["script"])
-        repl = dict(overrides.get(script_key) or {})
-        for k, v in wildcard.items():
-            repl.setdefault(k, v)
-        repl.pop(SCAN_RANGE_OVERRIDE_KEY, None)
-        script_path = Path(item["script"])
-
-        if reason:
-            report = _normalized_scan_report({
-                "applied": False,
-                "reason": reason,
-            }, script_path=script_path, item=item)
-            RESOLVED_OVERRIDE_REPORTS.append(report)
-            print("[SCAN-OVERRIDE] [{:03d}] {} skipped: {}".format(item.get("id", 0), script_path.name, reason))
-            overrides[script_key] = repl
-            continue
-
-        values, _ = parse_literal_assignments(script_path)
-        groups = enhanced_scan_groups(values)
-        group = choose_scan_group_for_item(item, groups, scan_cfg)
-        if not group:
-            report = _normalized_scan_report({
-                "applied": False,
-                "reason": "no supported scan group detected",
-            }, script_path=script_path, item=item)
-            RESOLVED_OVERRIDE_REPORTS.append(report)
-            print("[SCAN-OVERRIDE] [{:03d}] {} skipped: no supported scan group detected".format(item.get("id", 0), script_path.name))
-            overrides[script_key] = repl
-            continue
-
-        repl[group["start_key"]] = start
-        repl[group["end_key"]] = end
-        repl[group["step_key"]] = step
-        report = _normalized_scan_report({
-            "applied": True,
-            "group_prefix": group.get("prefix"),
-            "unit": group.get("unit"),
-            "start_key": group.get("start_key"),
-            "end_key": group.get("end_key"),
-            "step_key": group.get("step_key"),
-            "start": start,
-            "end": end,
-            "step": step,
-            "estimated_points": _scan_estimated_points(start, end, step),
-            "reason": "",
-        }, script_path=script_path, item=item)
-        RESOLVED_OVERRIDE_REPORTS.append(report)
-        print("[SCAN-OVERRIDE] [{:03d}] {} -> group={} unit={} replace {}={} {}={} {}={} estimated_points={}".format(
-            item.get("id", 0),
-            script_path.name,
-            report.get("group_prefix"),
-            report.get("unit"),
-            report.get("start_key"), report.get("start"),
-            report.get("end_key"), report.get("end"),
-            report.get("step_key"), report.get("step"),
-            report.get("estimated_points"),
-        ))
-        overrides[script_key] = repl
-    return overrides
-
-
-def _choose_scan_group_for_override(groups, scan_override):
-    if not groups:
-        return None
-    wanted_prefix = str((scan_override or {}).get("group_prefix") or "").strip()
-    if wanted_prefix:
-        for group in groups:
-            if str(group.get("prefix")) == wanted_prefix:
-                return group
-    return groups[0]
-
-
-def expand_semantic_scan_override(script_path, values, replacements, item=None):
-    replacements = dict(replacements or {})
-    scan_override = replacements.pop(SCAN_RANGE_OVERRIDE_KEY, None)
-    generic_scan_keys = (
-        "SCAN_START_NM", "SCAN_END_NM", "SCAN_STEP_NM",
-        "START_NM", "END_NM", "STEP_NM",
-        "START", "END", "STEP",
-    )
-    if isinstance(scan_override, dict):
-        for key in generic_scan_keys:
-            replacements.pop(key, None)
-    if not isinstance(scan_override, dict) or not scan_override.get("enabled", True):
-        return replacements, None
-
-    start = scan_override.get("start")
-    end = scan_override.get("end")
-    step = scan_override.get("step")
-    if start in (None, "") or end in (None, "") or step in (None, ""):
-        return replacements, {
-            "applied": False,
-            "reason": "scan override missing start/end/step",
-            "script": str(script_path),
-            "id": item.get("id") if item else None,
-        }
-
-    groups = scan_groups(values)
-    group = _choose_scan_group_for_override(groups, scan_override)
-    if not group:
-        return replacements, {
-            "applied": False,
-            "reason": "no supported scan group detected",
-            "script": str(script_path),
-            "id": item.get("id") if item else None,
-        }
-
-    start_value = float(start)
-    end_value = float(end)
-    step_value = float(step)
-    start_key = group["start_key"]
-    end_key = group["end_key"]
-    step_key = group["step_key"]
-
-    replacements[start_key] = start_value
-    replacements[end_key] = end_value
-    replacements[step_key] = step_value
-
-    unit = group.get("unit") or ""
-    prefix = group.get("prefix") or "SCAN"
-    if unit and unit != "RAW":
-        replacements.setdefault("SCAN_START_{}".format(unit), start_value)
-        replacements.setdefault("SCAN_END_{}".format(unit), end_value)
-        replacements.setdefault("SCAN_STEP_{}".format(unit), step_value)
-        replacements.setdefault("START_{}".format(unit), start_value)
-        replacements.setdefault("END_{}".format(unit), end_value)
-        replacements.setdefault("STEP_{}".format(unit), step_value)
-        replacements.setdefault("{}_START_{}".format(prefix, unit), start_value)
-        replacements.setdefault("{}_STOP_{}".format(prefix, unit), end_value)
-        replacements.setdefault("{}_STEP_{}".format(prefix, unit), step_value)
-    else:
-        replacements.setdefault("START", start_value)
-        replacements.setdefault("END", end_value)
-        replacements.setdefault("STEP", step_value)
-
-    return replacements, {
-        "applied": True,
-        "script": str(script_path),
-        "id": item.get("id") if item else None,
-        "group_prefix": group.get("prefix"),
-        "unit": group.get("unit"),
-        "start_key": start_key,
-        "end_key": end_key,
-        "step_key": step_key,
-        "start": start_value,
-        "end": end_value,
-        "step": step_value,
-        "estimated_points": _scan_estimated_points(start_value, end_value, step_value),
-    }
-
-
-def _normalized_scan_report(scan_report, script_path="", item=None):
-    item = item or {}
-    base = {
-        "applied": False,
-        "script": str(script_path or ""),
-        "id": item.get("id"),
-        "group_prefix": "",
-        "unit": "",
-        "start_key": "",
-        "end_key": "",
-        "step_key": "",
-        "start": None,
-        "end": None,
-        "step": None,
-        "estimated_points": None,
-        "reason": "",
-    }
-    if isinstance(scan_report, dict):
-        for k in base.keys():
-            if k in scan_report:
-                base[k] = scan_report.get(k)
-        for k, v in scan_report.items():
-            if k not in base:
-                base[k] = v
-    if not base.get("script"):
-        base["script"] = str(script_path or "")
-    if base.get("id") is None:
-        base["id"] = item.get("id")
-    return base
-
-
-def write_resolved_overrides_report(run_root=None):
-    targets = []
-    if run_root:
-        targets.append(Path(run_root) / "resolved_overrides.json")
-    job_dir = os.environ.get("JOB_DIR")
-    if job_dir:
-        targets.append(Path(job_dir) / "resolved_overrides.json")
-    written = set()
-    for target in targets:
-        try:
-            key = str(Path(target).resolve())
-            if key in written:
-                continue
-            written.add(key)
-            Path(target).parent.mkdir(parents=True, exist_ok=True)
-            with Path(target).open("w", encoding="utf-8") as f:
-                json.dump(RESOLVED_OVERRIDE_REPORTS, f, ensure_ascii=False, indent=2)
-            print("[SCAN-OVERRIDE] resolved report saved: {}".format(target))
-        except Exception as exc:
-            print("warning: failed to write resolved_overrides.json to {}: {}".format(target, exc))
-
-
-def write_resolved_overrides(run_root=None):
-    return write_resolved_overrides_report(run_root)
-
-
 def normalize_overrides_for_script_text(script_text, replacements, script_path=""):
     normalized = OrderedDict()
     debug = []
@@ -1319,33 +939,7 @@ def _config_aliases_for_key(name):
     return tuple(aliases.keys())
 
 
-def normalize_replacement_value(name, value):
-    if value in (None, ""):
-        return value
-    if isinstance(value, str):
-        text = value.strip()
-        if text == "":
-            return value
-        try:
-            num = float(text)
-            upper = str(name or "").upper()
-            if num.is_integer() and not upper.endswith(("_S", "_FS", "_FACTOR")):
-                return int(num)
-            return num
-        except Exception:
-            return value
-    return value
-
-
 def replace_assignments(text, replacements):
-    normalized_input = {}
-    for raw_name, raw_value in (replacements or {}).items():
-        name = str(raw_name)
-        if name == SCAN_RANGE_OVERRIDE_KEY:
-            continue
-        normalized_input[name] = normalize_replacement_value(name, raw_value)
-    replacements = normalized_input
-
     if "SIMULATION_TIME_FS" in replacements and "SIMULATION_TIME_S" not in replacements:
         try:
             replacements = dict(replacements)
@@ -1394,76 +988,22 @@ def replace_assignments(text, replacements):
             text += injection
     return text
 
-def override_candidates_for_script(item):
-    script_path = Path(item["script"])
-    candidates = []
-    seen = set()
-
-    def add(v):
-        if v is None:
-            return
-        t = str(v)
-        if not t or t in seen:
-            return
-        seen.add(t)
-        candidates.append(t)
-
-    add(item.get("script"))
-    add(script_path)
-    try:
-        add(script_path.resolve())
-    except Exception:
-        pass
-    try:
-        add(str(script_path.resolve().relative_to(STRUCT_ROOT.resolve())))
-    except Exception:
-        pass
-    add(script_path.name)
-    return candidates
-
 def prepare_script_for_run(item, run_root, overrides):
     script_path = Path(item["script"])
-    repl = None
-    for key in override_candidates_for_script(item):
-        if key in overrides:
-            repl = overrides.get(key)
-            break
-    if repl is None:
-        repl = overrides.get("*")
+    try:
+        rel_script = str(script_path.resolve().relative_to(STRUCT_ROOT.resolve()))
+    except Exception:
+        rel_script = str(script_path)
+    repl = (
+        overrides.get(str(item["script"]))
+        or overrides.get(str(script_path))
+        or overrides.get(str(script_path.resolve()))
+        or overrides.get(rel_script)
+        or overrides.get("*")
+    )
     if not repl:
         return item["script"]
-    values, text = parse_literal_assignments(item["script"])
-    repl, scan_report = expand_semantic_scan_override(item["script"], values, repl, item=item)
-    if scan_report:
-        RESOLVED_OVERRIDE_REPORTS.append(_normalized_scan_report(scan_report, script_path=item["script"], item=item))
-        if scan_report.get("applied"):
-            print("[SCAN-OVERRIDE] [{:03d}] {} -> group={} unit={} replace {}={} {}={} {}={} estimated_points={}".format(
-                item.get("id", 0),
-                Path(item["script"]).name,
-                scan_report.get("group_prefix"),
-                scan_report.get("unit"),
-                scan_report.get("start_key"), scan_report.get("start"),
-                scan_report.get("end_key"), scan_report.get("end"),
-                scan_report.get("step_key"), scan_report.get("step"),
-                scan_report.get("estimated_points"),
-            ))
-        else:
-            print("[SCAN-OVERRIDE] [{:03d}] {} skipped: {}".format(
-                item.get("id", 0),
-                Path(item["script"]).name,
-                scan_report.get("reason"),
-            ))
-    elif SCAN_RANGE_OVERRIDE_KEY in (repl or {}):
-        fallback_report = _normalized_scan_report({
-            "applied": False,
-            "reason": "scan override not applied",
-        }, script_path=item["script"], item=item)
-        RESOLVED_OVERRIDE_REPORTS.append(fallback_report)
-        print("[SCAN-OVERRIDE] [{:03d}] {} skipped: {}".format(
-            item.get("id", 0),
-            Path(item["script"]).name,
-            fallback_report.get("reason"),
-        ))
+    _, text = parse_literal_assignments(item["script"])
     normalized_repl, debug = normalize_overrides_for_script_text(
         text, repl, script_path=str(script_path)
     )
@@ -1530,7 +1070,7 @@ def command_for(script, child_mode):
         elif style == "short_flags":
             cmd += {"preview": ["--preview"], "test": ["--test"], "full": ["--full"]}[child_mode]
         else:
-            print("Hint: script {} has no recognized CLI mode flag; run with its default behavior.".format(script.name))
+            print("提示：{} 未检测到命令行模式参数，将按脚本默认交互/默认模式运行。".format(script.name))
     return cmd
 
 
@@ -1544,7 +1084,7 @@ def kill_process_tree(proc):
 
 
 def read_hotkey_nonblocking():
-    """Windows console non-blocking key read; return None when no key is available."""
+    """Windows 控制台非阻塞读按键。没有按键时返回 None。"""
     if os.name != "nt":
         return None
     try:
@@ -1560,7 +1100,7 @@ def read_hotkey_nonblocking():
 
 
 def start_stdin_command_listener():
-    """Fallback stdin listener for environments where msvcrt hotkeys are unavailable."""
+    """PyCharm 运行窗口通常不支持 msvcrt 热键；这里改用 输入字母+回车。"""
     global STDIN_LISTENER_STARTED
     with STDIN_LISTENER_LOCK:
         if STDIN_LISTENER_STARTED:
@@ -1600,25 +1140,27 @@ def make_interrupt_record(item, script, action, current):
         "mother": item["mother"],
         "perturbation": item["perturbation"],
         "script": str(script),
-        "current_point": current.get("point") or "N/A",
-        "current_param": current.get("param") or "N/A",
+        "current_point": current.get("point") or "未捕获到当前扫描点输出",
+        "current_param": current.get("param") or "未捕获到当前参数输出",
     }
+
 
 def make_failure_record(item, script, code, current, stdout_path, stderr_path):
     return {
         "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "action": "child script failed",
+        "action": "子脚本异常退出",
         "id": item["id"],
         "symmetry": item["symmetry"],
         "mother": item["mother"],
         "perturbation": item["perturbation"],
         "script": str(script),
         "exit_code": code,
-        "current_point": current.get("point") or "N/A",
-        "current_param": current.get("param") or "N/A",
+        "current_point": current.get("point") or "未捕获到当前扫描点输出",
+        "current_param": current.get("param") or "未捕获到当前参数输出",
         "stdout_log": str(stdout_path),
         "stderr_log": str(stderr_path),
     }
+
 
 def remember_interrupt(record):
     if not record:
@@ -1637,14 +1179,16 @@ def remember_failure(record):
 def print_interrupt_summary(run_root=None):
     if not INTERRUPTED_TASKS:
         return
-    safe_console_print("\nInterrupted/Skipped summary:\n")
-    safe_console_print("=" * 96 + "\n")
+    print("\n中断/跳过记录汇总：")
+    print("=" * 96)
     for i, rec in enumerate(INTERRUPTED_TASKS, 1):
-        safe_console_print("[{}] {} | {} / {} / {} | {}\n".format(i, rec["action"], rec["symmetry"], rec["mother"], rec["perturbation"], rec["time"]))
-        safe_console_print("    script: {}\n".format(rec["script"]))
-        safe_console_print("    point: {}\n".format(rec["current_point"]))
-        safe_console_print("    param: {}\n".format(rec["current_param"]))
-    safe_console_print("=" * 96 + "\n")
+        print("[{}] {} | {} / {} / {} | {}".format(
+            i, rec["action"], rec["symmetry"], rec["mother"], rec["perturbation"], rec["time"]
+        ))
+        print("    脚本：{}".format(rec["script"]))
+        print("    当前仿真：{}".format(rec["current_point"]))
+        print("    当前参数：{}".format(rec["current_param"]))
+    print("=" * 96)
     if run_root is not None:
         out = Path(run_root) / "interrupted_tasks.csv"
         try:
@@ -1654,49 +1198,41 @@ def print_interrupt_summary(run_root=None):
                 writer.writeheader()
                 for rec in INTERRUPTED_TASKS:
                     writer.writerow(rec)
-            safe_console_print("Interrupted records saved: {}\n".format(out))
+            print("中断记录已保存：{}".format(out))
         except Exception as e:
-            safe_console_print("Failed to save interrupted records: {}\n".format(e))
+            print("中断记录保存失败：{}".format(e))
+
 
 def print_failure_summary(run_root=None):
     if not FAILED_TASKS:
         return
-    safe_console_print("\nFailed scripts summary:\n")
-    safe_console_print("=" * 96 + "\n")
+    print("\n失败脚本汇总：")
+    print("=" * 96)
     for i, rec in enumerate(FAILED_TASKS, 1):
-        safe_console_print("[{}] exit {} | [{:03d}] {} / {} / {} | {}\n".format(i, rec["exit_code"], rec["id"], rec["symmetry"], rec["mother"], rec["perturbation"], rec["time"]))
-        safe_console_print("    script: {}\n".format(rec["script"]))
-        safe_console_print("    point: {}\n".format(rec["current_point"]))
-        safe_console_print("    param: {}\n".format(rec["current_param"]))
-        safe_console_print("    stderr: {}\n".format(rec["stderr_log"]))
-    safe_console_print("=" * 96 + "\n")
+        print("[{}] 退出码 {} | [{:03d}] {} / {} / {} | {}".format(
+            i, rec["exit_code"], rec["id"], rec["symmetry"], rec["mother"], rec["perturbation"], rec["time"]
+        ))
+        print("    脚本：{}".format(rec["script"]))
+        print("    当前仿真：{}".format(rec["current_point"]))
+        print("    当前参数：{}".format(rec["current_param"]))
+        print("    stderr 日志：{}".format(rec["stderr_log"]))
+    print("=" * 96)
     if run_root is not None:
         out = Path(run_root) / "failed_tasks.csv"
         try:
             with out.open("w", newline="", encoding="utf-8-sig") as f:
-                fields = ["time", "action", "id", "symmetry", "mother", "perturbation", "script", "exit_code", "current_point", "current_param", "stdout_log", "stderr_log"]
+                fields = [
+                    "time", "action", "id", "symmetry", "mother", "perturbation",
+                    "script", "exit_code", "current_point", "current_param",
+                    "stdout_log", "stderr_log",
+                ]
                 writer = csv.DictWriter(f, fieldnames=fields)
                 writer.writeheader()
                 for rec in FAILED_TASKS:
                     writer.writerow(rec)
-            safe_console_print("Failed records saved: {}\n".format(out))
+            print("失败记录已保存：{}".format(out))
         except Exception as e:
-            safe_console_print("Failed to save failed records: {}\n".format(e))
-
-def final_controller_exit_code(failed_count, interrupted_count=0, controller_error=False):
-    if controller_error:
-        return 1
-    if interrupted_count:
-        return 130
-    if failed_count:
-        return 2
-    return 0
-
-
-def print_final_exit_summary(failed_count, interrupted_count=0, controller_error=False):
-    code = final_controller_exit_code(failed_count, interrupted_count, controller_error)
-    print("Final Exit_Code: {}".format(code))
-    return code
+            print("失败记录保存失败：{}".format(e))
 
 
 def stream_process(item, script, child_mode, log_dir, child_timeout_s=None):
@@ -1704,9 +1240,12 @@ def stream_process(item, script, child_mode, log_dir, child_timeout_s=None):
     log_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = log_dir / (safe_token(item["mother"] + "_" + item["perturbation"]) + "_stdout.log")
     stderr_path = log_dir / (safe_token(item["mother"] + "_" + item["perturbation"]) + "_stderr.log")
-    print("\nLaunch [{:03d}] {} / {} : {}".format(item["id"], item["mother"], item["perturbation"], " ".join(cmd)))
-    child_env = build_child_env(item, STRUCT_ROOT, script_path=script)
+    print("\n启动 [{:03d}] {} / {}：{}".format(item["id"], item["mother"], item["perturbation"], " ".join(cmd)))
+    child_env = os.environ.copy()
+    child_env["PYTHONIOENCODING"] = "{}:replace".format(CHILD_OUTPUT_ENCODING)
     with stdout_path.open("w", encoding="utf-8", errors="replace") as out, stderr_path.open("w", encoding="utf-8", errors="replace") as err:
+        # Lumerical v202 自带的是 Python 3.6；subprocess.Popen 的 text=True
+        # 是 Python 3.7+ 的别名。这里使用 universal_newlines=True 保持兼容。
         proc = subprocess.Popen(
             cmd,
             cwd=str(script.parent),
@@ -1725,9 +1264,9 @@ def stream_process(item, script, child_mode, log_dir, child_timeout_s=None):
 
         def capture_current(line):
             text = line.strip()
-            if "开始仿真" in text or "start" in text.lower():
+            if "开始仿真" in text:
                 current["point"] = text
-            if "当前参数" in text or "param" in text.lower():
+            if "当前参数" in text:
                 current["param"] = text
 
         def pump(src, file_obj, prefix):
@@ -1736,7 +1275,6 @@ def stream_process(item, script, child_mode, log_dir, child_timeout_s=None):
                 file_obj.flush()
                 capture_current(line)
                 safe_console_print(prefix + line, end="")
-
         t1 = threading.Thread(target=pump, args=(proc.stdout, out, "[{:03d} OUT] ".format(item["id"])))
         t2 = threading.Thread(target=pump, args=(proc.stderr, err, "[{:03d} ERR] ".format(item["id"])))
         t1.daemon = True
@@ -1745,13 +1283,14 @@ def stream_process(item, script, child_mode, log_dir, child_timeout_s=None):
         t2.start()
         if child_mode != "ask":
             start_stdin_command_listener()
+        print("[总控中断命令] 标准终端可直接按 s/n/q；PyCharm 请在运行窗口输入 s 或 n 后回车=跳过当前仿真，输入 q 后回车=结束当前仿真并退出总控。")
         try:
             while True:
                 code = proc.poll()
                 if code is not None:
                     break
                 if child_timeout_s > 0 and (time.time() - started_at) > child_timeout_s:
-                    print("\nChild timeout: killing [{:03d}] after {:.0f}s.".format(item["id"], child_timeout_s))
+                    print("\nChild timeout: killing [{:03d}] after {:.0f}s. Increase --child-timeout-s if this point is expected to run longer.".format(item["id"], child_timeout_s))
                     kill_process_tree(proc)
                     record = make_failure_record(item, script, "timeout_{}s".format(int(child_timeout_s)), current, stdout_path, stderr_path)
                     remember_failure(record)
@@ -1760,19 +1299,24 @@ def stream_process(item, script, child_mode, log_dir, child_timeout_s=None):
                 command = read_stdin_command_nonblocking()
                 action = command or key
                 if action in ("q", "quit", "exit", "\x1b"):
+                    print("\n收到 q：正在结束当前子脚本和 FDTD 进程树，并退出总控...")
                     kill_process_tree(proc)
-                    record = make_interrupt_record(item, script, "quit controller", current)
+                    record = make_interrupt_record(item, script, "退出总控", current)
                     remember_interrupt(record)
                     raise StopController(record)
                 if action in ("s", "n", "skip", "next"):
+                    print("\n收到 s/n：正在结束当前子脚本和 FDTD 进程树，并跳过当前任务...")
                     kill_process_tree(proc)
-                    record = make_interrupt_record(item, script, "skip current", current)
+                    record = make_interrupt_record(item, script, "跳过当前仿真并继续", current)
                     remember_interrupt(record)
                     raise SkipCurrentTask(record)
+                if action == "p":
+                    print("\n提示：为了避免破坏 FDTD 内部状态，总控没有外部暂停/恢复正在运行仿真的功能。可按 s 跳过或 q 退出。")
                 time.sleep(0.25)
         except KeyboardInterrupt:
+            print("\n收到 Ctrl+C，正在结束子脚本和它启动的 FDTD 进程树...")
             kill_process_tree(proc)
-            record = make_interrupt_record(item, script, "Ctrl+C", current)
+            record = make_interrupt_record(item, script, "Ctrl+C 中断", current)
             remember_interrupt(record)
             raise
         t1.join(timeout=2)
@@ -1783,26 +1327,68 @@ def stream_process(item, script, child_mode, log_dir, child_timeout_s=None):
             raise ChildScriptError(record)
     return 0
 
+
 def run_sequential(selected, child_mode, run_root, overrides, child_timeout_s=None):
     log_dir = run_root / "logs"
     for item in selected:
         script = prepare_script_for_run(item, run_root, overrides)
         try:
             stream_process(item, script, child_mode, log_dir, child_timeout_s)
-        except SkipCurrentTask:
+        except SkipCurrentTask as e:
+            print("已跳过 [{:03d}] {} / {}，继续下一个任务。".format(item["id"], item["mother"], item["perturbation"]))
+            print("    被跳过的当前仿真：{}".format(e.record.get("current_point")))
+            print("    被跳过的当前参数：{}".format(e.record.get("current_param")))
             continue
         except ChildScriptError as e:
-            print("Warning: script [{:03d}] failed with exit code {}".format(item["id"], e.record.get("exit_code")))
+            print("警告：[{:03d}] {} / {} 子脚本异常退出，退出码 {}。总控将继续下一个任务。".format(
+                item["id"], item["mother"], item["perturbation"], e.record.get("exit_code")
+            ))
+            print("    当前仿真：{}".format(e.record.get("current_point")))
+            print("    当前参数：{}".format(e.record.get("current_param")))
+            print("    错误日志：{}".format(e.record.get("stderr_log")))
             continue
         except StopController:
             raise
+        finally:
+            cleanup_temp_script(script, item["script"])
+
 
 def run_parallel(selected, child_mode, run_root, overrides, max_parallel, child_timeout_s=None):
-    run_sequential(selected, child_mode, run_root, overrides, child_timeout_s)
+    # 简洁稳定的并行：每批最多 max_parallel 个；每个线程内部实时转发输出。
+    remaining = list(selected)
+    while remaining:
+        batch = remaining[:max_parallel]
+        remaining = remaining[max_parallel:]
+        errors = []
+        threads = []
+        def worker(item):
+            script = item["script"]
+            try:
+                script = prepare_script_for_run(item, run_root, overrides)
+                stream_process(item, script, child_mode, run_root / "logs", child_timeout_s)
+            except ChildScriptError as e:
+                print("警告：[{:03d}] {} / {} 子脚本异常退出，退出码 {}。".format(
+                    item["id"], item["mother"], item["perturbation"], e.record.get("exit_code")
+                ))
+            except Exception as e:
+                errors.append(e)
+            finally:
+                cleanup_temp_script(script, item["script"])
+        for item in batch:
+            t = threading.Thread(target=worker, args=(item,))
+            t.start()
+            threads.append(t)
+        try:
+            for t in threads:
+                t.join()
+        except KeyboardInterrupt:
+            print("\n收到 Ctrl+C。并行任务的子进程会由各线程清理；如仍有 FDTD 窗口残留，请在任务管理器检查。")
+            raise
+        if errors:
+            raise errors[0]
+
 
 def main():
-    global RESOLVED_OVERRIDE_REPORTS
-    RESOLVED_OVERRIDE_REPORTS = []
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["ask", "preview", "test", "full"], default=DEFAULT_CHILD_MODE)
     parser.add_argument("--style", choices=["ask", "sequential", "parallel"], default=DEFAULT_RUN_STYLE)
@@ -1835,8 +1421,8 @@ def main():
     if selected is None:
         selected = select_records(records)
     if not selected:
-        print("No scripts selected; controller exits.")
-        return 0
+        print("未选择运行脚本，总控结束。")
+        return
 
     child_mode = args.mode if noninteractive and args.mode != "ask" else choose_child_mode(args.mode)
     run_style = args.style if noninteractive and args.style != "ask" else choose_run_style(args.style, child_mode)
@@ -1849,9 +1435,9 @@ def main():
         print("\n--missing-only: {} -> {} scripts without latest {} results.".format(before_count, len(selected), child_mode))
         if not selected:
             print("No scripts need to run for mode '{}'.".format(child_mode))
-            return 0
+            return
 
-    print("\nRun pre-check:")
+    print("\n运行前检查：")
     print("=" * 96)
     for item in selected:
         print(explain_script(item))
@@ -1905,41 +1491,15 @@ def main():
             existing = dict(overrides.get(key, {}))
             existing.update(controller_extra_overrides)
             overrides[key] = existing
-
-    # Controller-level fatal validation for __scan_range__ before any child launch.
-    normalized_overrides, scan_cfg = normalize_overrides_shape(overrides)
-    overrides = normalized_overrides
-    if isinstance(scan_cfg, dict) and _truthy(scan_cfg.get("enabled", True)):
-        scan_check = validate_scan_range_payload(scan_cfg)
-        if not scan_check.get("ok"):
-            failed_reports = build_scan_range_failed_reports(selected, scan_cfg, scan_check.get("errors") or [])
-            RESOLVED_OVERRIDE_REPORTS.extend(failed_reports)
-            print("[SCAN-OVERRIDE][FATAL] invalid __scan_range__: {}".format("; ".join(scan_check.get("errors") or [])))
-            print("blocked before launching child scripts")
-            run_root = CONTROLLER_LOG_ROOT / ("controller_run_" + now_stamp())
-            run_root.mkdir(parents=True, exist_ok=True)
-            write_resolved_overrides_report(run_root)
-            return 2
-        normalized_scan = {
-            "enabled": True,
-            "start": scan_check.get("start"),
-            "end": scan_check.get("end"),
-            "step": scan_check.get("step"),
-            "estimated_points": scan_check.get("estimated_points"),
-            "unit": str(scan_cfg.get("unit") or ""),
-        }
-        overrides[SCAN_RANGE_OVERRIDE_KEY] = normalized_scan
-
-    overrides = resolve_scan_range_for_selected(selected, overrides)
-    print("\nFinal run count: {} ; mode: {} ; style: {}".format(len(selected), child_mode, run_style))
+    print("\n最终将运行 {} 个脚本；模式：{}；方式：{}。".format(len(selected), child_mode, run_style))
     if overrides:
-        print("Temporary overrides:")
+        print("已设置临时参数覆盖：")
         for path, repl in overrides.items():
             print("  {} -> {}".format(Path(path).name, repl))
     if not args.yes:
         if input("\u786e\u8ba4\u5f00\u59cb\uff1f\u8f93\u5165 YES\uff1a").strip() != "YES":
             print("\u5df2\u53d6\u6d88\u3002")
-            return 0
+            return
     else:
         print("\u5df2\u901a\u8fc7 --yes \u8df3\u8fc7\u6700\u7ec8\u786e\u8ba4\u3002")
 
@@ -1951,27 +1511,19 @@ def main():
         else:
             run_sequential(selected, child_mode, run_root, overrides, args.child_timeout_s)
     except StopController:
-        write_resolved_overrides(run_root)
-        print("\nController stopped by user command.")
+        print("\n总控已按你的指令退出。")
         print_interrupt_summary(run_root)
         print_failure_summary(run_root)
-        return print_final_exit_summary(len(FAILED_TASKS), len(INTERRUPTED_TASKS), controller_error=False)
+        return
     except KeyboardInterrupt:
-        write_resolved_overrides(run_root)
-        print("\nController received KeyboardInterrupt.")
+        print("\n总控已收到中断并尝试结束当前子进程树。")
         print_interrupt_summary(run_root)
         print_failure_summary(run_root)
-        return print_final_exit_summary(len(FAILED_TASKS), len(INTERRUPTED_TASKS), controller_error=False)
-    except Exception:
-        write_resolved_overrides(run_root)
-        print_interrupt_summary(run_root)
-        print_failure_summary(run_root)
-        return print_final_exit_summary(len(FAILED_TASKS), len(INTERRUPTED_TASKS), controller_error=True)
-    write_resolved_overrides(run_root)
+        return
     print_interrupt_summary(run_root)
     print_failure_summary(run_root)
-    print("\nAll tasks finished. Controller log dir: {}".format(run_root))
-    return print_final_exit_summary(len(FAILED_TASKS), len(INTERRUPTED_TASKS), controller_error=False)
+    print("\n全部任务结束。总控日志目录：{}".format(run_root))
+
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
